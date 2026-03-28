@@ -1,0 +1,2 @@
+export const DB_CONNECTION = Symbol('DB_CONNECTION');
+export const CAPTURE_REPOSITORY = Symbol('CAPTURE_REPOSITORY');

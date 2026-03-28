@@ -1,19 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DbService } from '../db/db.module';
+import { CAPTURE_REPOSITORY } from '../db/db.constants';
+import type { CaptureRepository } from '../db/db.types';
 
 @Injectable()
 export class CaptureReadService {
-  constructor(@Inject(DbService) private readonly dbService: DbService) {}
+  constructor(
+    @Inject(CAPTURE_REPOSITORY)
+    private readonly captureRepository: CaptureRepository,
+  ) {}
 
-  getCapture(captureId: string) {
-    return this.dbService.findCaptureById(captureId) ?? null;
+  async getCapture(captureId: string) {
+    return (await this.captureRepository.findCaptureById(captureId)) ?? null;
   }
 
-  listInboxItemsForCapture(captureId: string) {
-    return this.dbService.listInboxItemsByCaptureId(captureId);
+  async listInboxItemsForCapture(captureId: string) {
+    return this.captureRepository.listInboxItemsByCaptureId(captureId);
   }
 
-  listCaptureSessions(captureId: string) {
-    return this.dbService.listCaptureSessionsByCaptureId(captureId);
+  async listCaptureSessions(captureId: string) {
+    return this.captureRepository.listCaptureSessionsByCaptureId(captureId);
   }
 }

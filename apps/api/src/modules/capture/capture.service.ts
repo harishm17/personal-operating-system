@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
-import { DbService } from '../db/db.module';
+import { CAPTURE_REPOSITORY } from '../db/db.constants';
+import type { CaptureRecord, CaptureRepository } from '../db/db.types';
 import { JobsService } from '../jobs/jobs.service';
 import { CaptureEventService } from './capture-event.service';
 import { CaptureSessionService } from './capture-session.service';
@@ -8,7 +9,8 @@ import { CAPTURE_CHANNELS, CreateCaptureDto } from './dto/create-capture.dto';
 @Injectable()
 export class CaptureService {
   constructor(
-    @Inject(DbService) private readonly dbService: DbService,
+    @Inject(CAPTURE_REPOSITORY)
+    private readonly captureRepository: CaptureRepository,
     @Inject(CaptureSessionService)
     private readonly captureSessionService: CaptureSessionService,
     @Inject(CaptureEventService)
@@ -19,14 +21,16 @@ export class CaptureService {
   async createCapture(dto: CreateCaptureDto) {
     this.validateCreateCaptureDto(dto);
 
-    const existingCapture = this.dbService.findCaptureByClientRequestId(dto.clientRequestId);
+    const existingCapture = await this.captureRepository.findCaptureByClientRequestId(
+      dto.clientRequestId,
+    );
     if (existingCapture) {
       this.assertSameRequest(existingCapture, dto);
       return this.reconcileReplay(existingCapture);
     }
 
-    const capture = this.dbService.insertCapture(dto);
-    const inboxItem = this.dbService.insertInboxItem({
+    const capture = await this.captureRepository.insertCapture(dto);
+    const inboxItem = await this.captureRepository.findOrCreateInboxItem({
       captureId: capture.id,
       itemType: 'capture_review',
       title: 'New capture received',
@@ -44,34 +48,29 @@ export class CaptureService {
     return { capture, inboxItem };
   }
 
-  private async reconcileReplay(existingCapture: Awaited<ReturnType<DbService['findCaptureByClientRequestId']>>) {
+  private async reconcileReplay(existingCapture: CaptureRecord) {
     const capture = existingCapture;
-    if (!capture) {
-      throw new Error('reconcileReplay called without capture');
-    }
+    const inboxItem = await this.captureRepository.findOrCreateInboxItem({
+      captureId: capture.id,
+      itemType: 'capture_review',
+      title: 'New capture received',
+    });
 
-    const inboxItem =
-      this.dbService.findInboxItemByCaptureId(capture.id) ??
-      this.dbService.insertInboxItem({
-        captureId: capture.id,
-        itemType: 'capture_review',
-        title: 'New capture received',
-      });
-
-    const captureSession =
-      this.dbService.findCaptureSessionBySessionKey(`capture:${capture.channel}:${capture.id}`) ??
-      (await this.captureSessionService.recordCreate(capture.id, capture.channel));
-
-    const captureEvent = this.dbService.findCaptureEventByCaptureIdAndKind(capture.id, 'capture_received');
-    if (!captureEvent) {
-      await this.captureEventService.append(
-        capture.id,
-        'capture_received',
-        this.buildCaptureEventPayload(capture),
+    const captureSession = await this.captureSessionService.recordCreate(
+      capture.id,
+      capture.channel,
+    );
+    const captureEvent = await this.captureEventService.append(
+      capture.id,
+      'capture_received',
+      this.buildCaptureEventPayload(capture),
+      captureSession.id,
+    );
+    if (captureEvent.captureSessionId !== captureSession.id) {
+      await this.captureRepository.updateCaptureEventSession(
+        captureEvent.id,
         captureSession.id,
       );
-    } else if (captureEvent.captureSessionId !== captureSession.id) {
-      this.dbService.updateCaptureEventSession(captureEvent.id, captureSession.id);
     }
 
     const existingJob = this.jobsService
@@ -120,7 +119,12 @@ export class CaptureService {
     }
   }
 
-  private buildCaptureEventPayload(dto: Pick<CreateCaptureDto, 'channel' | 'sourceType' | 'contentText' | 'clientRequestId' | 'metadata'>) {
+  private buildCaptureEventPayload(
+    dto: Pick<
+      CreateCaptureDto,
+      'channel' | 'sourceType' | 'contentText' | 'clientRequestId' | 'metadata'
+    >,
+  ) {
     return {
       channel: dto.channel,
       sourceType: dto.sourceType,

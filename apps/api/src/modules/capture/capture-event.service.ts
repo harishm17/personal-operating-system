@@ -1,9 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DbService } from '../db/db.module';
+import { CAPTURE_REPOSITORY } from '../db/db.constants';
+import type { CaptureRepository } from '../db/db.types';
 
 @Injectable()
 export class CaptureEventService {
-  constructor(@Inject(DbService) private readonly dbService: DbService) {}
+  constructor(
+    @Inject(CAPTURE_REPOSITORY)
+    private readonly captureRepository: CaptureRepository,
+  ) {}
 
   async append(
     captureId: string,
@@ -11,7 +15,7 @@ export class CaptureEventService {
     payload: Record<string, unknown>,
     captureSessionId?: string,
   ) {
-    return this.dbService.insertCaptureEvent({
+    return this.captureRepository.findOrCreateCaptureEvent({
       captureId,
       captureSessionId,
       kind,
@@ -19,7 +23,7 @@ export class CaptureEventService {
     });
   }
 
-  listByCaptureId(captureId: string) {
-    return this.dbService.listCaptureEventsByCaptureId(captureId);
+  async listByCaptureId(captureId: string) {
+    return this.captureRepository.listCaptureEventsByCaptureId(captureId);
   }
 }
