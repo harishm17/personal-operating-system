@@ -47,6 +47,76 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(1);
   });
 
+  it('enforces durable capture job defaults and dedupe behavior', async () => {
+    const captureId = randomUUID();
+    const jobId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureId}, 'web', 'quick_capture', 'capture job payload', ${randomUUID()})
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+      values (${jobId}, ${captureId}, 'process-capture', ${`process-capture:${captureId}`})
+    `);
+
+    const inserted = await dbClient.db.execute(sql`
+      select
+        status,
+        created_at as "createdAt",
+        available_at as "availableAt"
+      from capture_jobs
+      where id = ${jobId}
+    `);
+
+    expect(inserted.rows[0]).toMatchObject({ status: 'pending' });
+    expect(inserted.rows[0]?.createdAt).toBeTruthy();
+    expect(inserted.rows[0]?.availableAt).toBeTruthy();
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+        values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}`})
+      `),
+    ).rejects.toThrow();
+  });
+
+  it('rejects invalid capture job statuses and cascades deletes from captures', async () => {
+    const captureId = randomUUID();
+    const cascadeJobId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureId}, 'web', 'quick_capture', 'capture for cascade', ${randomUUID()})
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
+        values (${randomUUID()}, ${captureId}, 'process-capture', ${`bad-status:${captureId}`}, 'pendng')
+      `),
+    ).rejects.toThrow();
+
+    await dbClient.db.execute(sql`
+      insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+      values (${cascadeJobId}, ${captureId}, 'process-capture', ${`cascade:${captureId}`})
+    `);
+
+    await dbClient.db.execute(sql`
+      delete from captures
+      where id = ${captureId}
+    `);
+
+    const deleted = await dbClient.db.execute(sql`
+      select 1
+      from capture_jobs
+      where id = ${cascadeJobId}
+    `);
+
+    expect(deleted.rows).toHaveLength(0);
+  });
+
   it('exposes the promotion link and confidence guard on candidates and attachments', async () => {
     const candidateColumns = await dbClient.db.execute(sql`
       select column_name
