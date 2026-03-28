@@ -1,11 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
+import { captureJobs, dbSchema } from '..';
 import { setupTask2SchemaDb } from './schema-test-helpers';
 
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL is required for @assistant/db tests');
 }
+
+type PostgresError = Error & {
+  cause?: {
+    code?: string;
+    constraint?: string;
+  };
+};
 
 describe('capture schema', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
@@ -47,6 +55,21 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(1);
   });
 
+  it('exports capture_jobs through dbSchema with the expected columns', () => {
+    expect(dbSchema.captureJobs).toBe(captureJobs);
+    expect(captureJobs).toMatchObject({
+      id: expect.anything(),
+      captureId: expect.anything(),
+      jobName: expect.anything(),
+      dedupeKey: expect.anything(),
+      status: expect.anything(),
+      payloadJson: expect.anything(),
+      createdAt: expect.anything(),
+      availableAt: expect.anything(),
+      processedAt: expect.anything(),
+    });
+  });
+
   it('enforces durable capture job defaults and dedupe behavior', async () => {
     const captureId = randomUUID();
     const jobId = randomUUID();
@@ -79,7 +102,12 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}`})
       `),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'capture_jobs_dedupe_key_key',
+      },
+    });
   });
 
   it('rejects unsupported capture job names and inconsistent processed timestamps', async () => {
@@ -110,6 +138,38 @@ describe('capture schema', () => {
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`completed-without-processed:${captureId}`}, 'completed')
       `),
     ).rejects.toThrow();
+  });
+
+  it('accepts terminal capture job statuses when processed_at is set', async () => {
+    const captureId = randomUUID();
+    const completedJobId = randomUUID();
+    const failedJobId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureId}, 'web', 'quick_capture', 'capture for terminal statuses', ${randomUUID()})
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_jobs (id, capture_id, job_name, dedupe_key, status, processed_at)
+      values
+        (${completedJobId}, ${captureId}, 'process-capture', ${`completed:${captureId}`}, 'completed', now()),
+        (${failedJobId}, ${captureId}, 'process-capture', ${`failed:${captureId}`}, 'failed', now())
+    `);
+
+    const inserted = await dbClient.db.execute(sql`
+      select status, processed_at as "processedAt"
+      from capture_jobs
+      where id in (${completedJobId}, ${failedJobId})
+      order by status asc
+    `);
+
+    expect(inserted.rows).toHaveLength(2);
+    expect(inserted.rows).toEqual([
+      expect.objectContaining({ status: 'completed', processedAt: expect.any(String) }),
+      expect.objectContaining({ status: 'failed', processedAt: expect.any(String) }),
+    ]);
+    expect(inserted.rows.every((row) => Boolean(row.processedAt))).toBe(true);
   });
 
   it('rejects invalid capture job statuses and cascades deletes from captures', async () => {
