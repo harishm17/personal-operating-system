@@ -111,6 +111,65 @@ END $$;
 
 DO $$
 BEGIN
+  DELETE FROM actors AS actor
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = actor.entity_id
+      AND entity.kind IS DISTINCT FROM 'actor'
+  );
+
+  DELETE FROM contexts AS context
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = context.entity_id
+      AND entity.kind IS DISTINCT FROM 'context'
+  );
+
+  DELETE FROM work_items AS work_item
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = work_item.entity_id
+      AND entity.kind IS DISTINCT FROM 'work_item'
+  );
+
+  DELETE FROM events AS event
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = event.entity_id
+      AND entity.kind IS DISTINCT FROM 'event'
+  );
+
+  DELETE FROM resources AS resource
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = resource.entity_id
+      AND entity.kind IS DISTINCT FROM 'resource'
+  );
+
+  DELETE FROM memory_items AS memory_item
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = memory_item.entity_id
+      AND entity.kind IS DISTINCT FROM 'memory'
+  );
+
+  DELETE FROM rules AS rule
+  WHERE EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = rule.entity_id
+      AND entity.kind IS DISTINCT FROM 'rule'
+  );
+END $$;
+
+DO $$
+BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'actors' AND column_name = 'kind') THEN
     ALTER TABLE actors ADD COLUMN kind text;
   END IF;
@@ -314,6 +373,12 @@ WHERE segment_id IS NOT NULL
       AND segment.capture_id = attachments.capture_id
   );
 
+UPDATE candidate_entities AS candidate
+SET capture_id = segment.capture_id
+FROM capture_segments AS segment
+WHERE candidate.segment_id = segment.id
+  AND candidate.capture_id IS DISTINCT FROM segment.capture_id;
+
 DELETE FROM candidate_entities
 WHERE segment_id IS NOT NULL
   AND NOT EXISTS (
@@ -322,12 +387,6 @@ WHERE segment_id IS NOT NULL
     WHERE segment.id = candidate_entities.segment_id
       AND segment.capture_id = candidate_entities.capture_id
   );
-
-UPDATE candidate_entities AS candidate
-SET capture_id = segment.capture_id
-FROM capture_segments AS segment
-WHERE candidate.segment_id = segment.id
-  AND candidate.capture_id IS DISTINCT FROM segment.capture_id;
 
 DELETE FROM candidate_entities
 WHERE kind NOT IN ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule');
