@@ -346,8 +346,8 @@ WHERE promoted_entity_id IS NOT NULL
 UPDATE capture_segments AS segment
 SET capture_id = part.capture_id
 FROM capture_parts AS part
-WHERE segment.capture_id IS NULL
-  AND segment.capture_part_id = part.id;
+WHERE segment.capture_part_id = part.id
+  AND segment.capture_id IS DISTINCT FROM part.capture_id;
 
 DELETE FROM capture_segments
 WHERE NOT EXISTS (

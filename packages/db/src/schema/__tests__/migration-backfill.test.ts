@@ -8,10 +8,15 @@ describe('task 2 backfill migration', () => {
       'utf8',
     );
 
+    const segmentRepairIndex = migration.indexOf('SET capture_id = part.capture_id');
+    const segmentDistinctIndex = migration.indexOf('segment.capture_id IS DISTINCT FROM part.capture_id');
     const deleteOrphansIndex = migration.indexOf('DELETE FROM capture_segments');
-    const notNullIndex = migration.indexOf('ALTER TABLE capture_segments\n  ALTER COLUMN capture_id SET NOT NULL;');
+    const notNullIndex = migration.indexOf(`ALTER TABLE capture_segments
+  ALTER COLUMN capture_id SET NOT NULL;`);
 
-    expect(deleteOrphansIndex).toBeGreaterThan(-1);
+    expect(segmentRepairIndex).toBeGreaterThan(-1);
+    expect(segmentDistinctIndex).toBeGreaterThan(segmentRepairIndex);
+    expect(deleteOrphansIndex).toBeGreaterThan(segmentDistinctIndex);
     expect(notNullIndex).toBeGreaterThan(deleteOrphansIndex);
 
     for (const [table, fkName] of [
@@ -23,7 +28,8 @@ describe('task 2 backfill migration', () => {
       ['memory_items', 'memory_items_entity_kind_fk'],
       ['rules', 'rules_entity_kind_fk'],
     ] as const) {
-      const orphanCleanupIndex = migration.indexOf(`DELETE FROM ${table}\n  WHERE entity_id NOT IN (SELECT id FROM entities);`);
+      const orphanCleanupIndex = migration.indexOf(`DELETE FROM ${table}
+  WHERE entity_id NOT IN (SELECT id FROM entities);`);
       const fkIndex = migration.indexOf(`ADD CONSTRAINT ${fkName} FOREIGN KEY (entity_id, kind)`);
 
       expect(orphanCleanupIndex).toBeGreaterThan(-1);
