@@ -25,8 +25,8 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(8);
   });
 
-  it('exposes the promotion link and confidence guard on candidates', async () => {
-    const columns = await dbClient.db.execute(sql`
+  it('exposes the promotion link and confidence guard on candidates and attachments', async () => {
+    const candidateColumns = await dbClient.db.execute(sql`
       select column_name
       from information_schema.columns
       where table_schema = 'public'
@@ -34,7 +34,7 @@ describe('capture schema', () => {
         and column_name in ('promoted_entity_id', 'promoted_entity_kind')
     `);
 
-    const fk = await dbClient.db.execute(sql`
+    const candidateFk = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
       where table_name = 'candidate_entities'
@@ -50,9 +50,81 @@ describe('capture schema', () => {
         and constraint_type = 'CHECK'
     `);
 
-    expect(columns.rows).toHaveLength(2);
-    expect(fk.rows).toHaveLength(1);
+    const attachmentFk = await dbClient.db.execute(sql`
+      select 1
+      from information_schema.table_constraints
+      where table_name = 'attachments'
+        and constraint_name = 'attachments_segment_id_fkey'
+        and constraint_type = 'FOREIGN KEY'
+    `);
+
+    expect(candidateColumns.rows).toHaveLength(2);
+    expect(candidateFk.rows).toHaveLength(1);
     expect(confidenceCheck.rows).toHaveLength(1);
+    expect(attachmentFk.rows).toHaveLength(1);
+  });
+
+  it('normalizes attachment capture ids from segments and detaches them on segment delete', async () => {
+    const captureA = randomUUID();
+    const captureB = randomUUID();
+    const partA = randomUUID();
+    const segmentA = randomUUID();
+    const attachmentId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureA}, 'web', 'chat', 'capture a', ${randomUUID()}), (${captureB}, 'web', 'chat', 'capture b', ${randomUUID()})
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_parts (id, capture_id, part_index, kind, content_text)
+      values (${partA}, ${captureA}, 0, 'message', 'part a')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
+      values (${segmentA}, ${partA}, ${captureB}, 0, 'sentence', 'segment a')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into attachments (id, capture_id, segment_id, file_name, storage_key)
+      values (${attachmentId}, ${captureA}, ${segmentA}, 'file.txt', 'storage-key')
+    `);
+
+    const inserted = await dbClient.db.execute(sql`
+      select capture_id as "captureId", segment_id as "segmentId"
+      from attachments
+      where id = ${attachmentId}
+    `);
+
+    expect(inserted.rows[0]).toEqual({ captureId: captureB, segmentId: segmentA });
+
+    await dbClient.db.execute(sql`
+      update attachments
+      set capture_id = ${captureA}
+      where id = ${attachmentId}
+    `);
+
+    const normalized = await dbClient.db.execute(sql`
+      select capture_id as "captureId", segment_id as "segmentId"
+      from attachments
+      where id = ${attachmentId}
+    `);
+
+    expect(normalized.rows[0]).toEqual({ captureId: captureB, segmentId: segmentA });
+
+    await dbClient.db.execute(sql`
+      delete from capture_segments
+      where id = ${segmentA}
+    `);
+
+    const detached = await dbClient.db.execute(sql`
+      select capture_id as "captureId", segment_id as "segmentId"
+      from attachments
+      where id = ${attachmentId}
+    `);
+
+    expect(detached.rows[0]).toEqual({ captureId: captureB, segmentId: null });
   });
 
   it('rejects invalid candidate kinds, subtype combinations, and mismatched promotion links', async () => {
@@ -129,7 +201,7 @@ describe('capture schema', () => {
     ).rejects.toThrow();
   });
 
-  it('rejects cross-capture references for capture events, attachments, and candidates', async () => {
+  it('rejects cross-capture references for capture events and candidates', async () => {
     const captureA = randomUUID();
     const captureB = randomUUID();
     const sessionA = randomUUID();
@@ -163,13 +235,6 @@ describe('capture schema', () => {
       dbClient.db.execute(sql`
         insert into capture_events (id, capture_id, capture_session_id, kind)
         values (${randomUUID()}, ${captureA}, ${sessionB}, 'mismatch')
-      `),
-    ).rejects.toThrow();
-
-    await expect(
-      dbClient.db.execute(sql`
-        insert into attachments (id, capture_id, segment_id, file_name, storage_key)
-        values (${randomUUID()}, ${captureA}, ${segmentB}, 'file.txt', 'storage-key')
       `),
     ).rejects.toThrow();
 

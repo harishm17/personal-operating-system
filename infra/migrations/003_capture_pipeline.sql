@@ -57,14 +57,50 @@ create table if not exists capture_segments (
 create table if not exists attachments (
   id uuid primary key default gen_random_uuid(),
   capture_id uuid not null references captures(id) on delete cascade,
-  segment_id uuid,
+  segment_id uuid references capture_segments(id) on delete set null,
   file_name text not null,
   content_type text,
   storage_key text not null,
   metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  constraint attachments_segment_capture_id_fkey foreign key (segment_id, capture_id) references capture_segments(id, capture_id) on delete cascade
+  created_at timestamptz not null default now()
 );
+
+create or replace function attachments_sync_capture_id()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.segment_id is null then
+    return new;
+  end if;
+
+  select capture_id
+  into new.capture_id
+  from capture_segments
+  where id = new.segment_id;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists attachments_sync_capture_id on attachments;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'attachments'
+      AND column_name IN ('capture_id', 'segment_id')
+    GROUP BY table_name
+    HAVING count(*) = 2
+  ) THEN
+    CREATE TRIGGER attachments_sync_capture_id
+    BEFORE INSERT OR UPDATE OF segment_id, capture_id
+    ON attachments
+    FOR EACH ROW
+    EXECUTE FUNCTION attachments_sync_capture_id();
+  END IF;
+END $$;
 
 create table if not exists inbox_items (
   id uuid primary key default gen_random_uuid(),

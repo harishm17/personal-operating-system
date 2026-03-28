@@ -455,6 +455,7 @@ WHERE kind NOT IN ('contains', 'references', 'derived_from', 'assigned_to', 'bel
 
 ALTER TABLE capture_events DROP CONSTRAINT IF EXISTS capture_events_capture_session_id_fkey;
 ALTER TABLE attachments DROP CONSTRAINT IF EXISTS attachments_segment_id_fkey;
+ALTER TABLE attachments DROP CONSTRAINT IF EXISTS attachments_segment_capture_id_fkey;
 ALTER TABLE candidate_entities DROP CONSTRAINT IF EXISTS candidate_entities_segment_id_fkey;
 ALTER TABLE candidate_entities DROP CONSTRAINT IF EXISTS candidate_entities_promoted_entity_id_fkey;
 
@@ -503,11 +504,48 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'attachments_segment_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'attachments_segment_id_fkey'
   ) THEN
     ALTER TABLE attachments
-      ADD CONSTRAINT attachments_segment_capture_id_fkey
-      FOREIGN KEY (segment_id, capture_id) REFERENCES capture_segments(id, capture_id) ON DELETE CASCADE;
+      ADD CONSTRAINT attachments_segment_id_fkey
+      FOREIGN KEY (segment_id) REFERENCES capture_segments(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+create or replace function attachments_sync_capture_id()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.segment_id is null then
+    return new;
+  end if;
+
+  select capture_id
+  into new.capture_id
+  from capture_segments
+  where id = new.segment_id;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists attachments_sync_capture_id on attachments;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'attachments'
+      AND column_name IN ('capture_id', 'segment_id')
+    GROUP BY table_name
+    HAVING count(*) = 2
+  ) THEN
+    CREATE TRIGGER attachments_sync_capture_id
+    BEFORE INSERT OR UPDATE OF segment_id, capture_id
+    ON attachments
+    FOR EACH ROW
+    EXECUTE FUNCTION attachments_sync_capture_id();
   END IF;
 END $$;
 
