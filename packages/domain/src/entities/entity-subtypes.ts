@@ -16,9 +16,11 @@ export type EntitySubtypeByKind = {
 
 export type EntitySubtypeForKind<K extends EntityKind> = EntitySubtypeByKind[K];
 
-export type EntityKindSubtype<K extends EntityKind = EntityKind> = {
-  kind: K;
-  subtype: EntitySubtypeForKind<K> | null;
-};
+export type EntityKindSubtype<K extends EntityKind = EntityKind> = K extends EntityKind
+  ? {
+      kind: K;
+      subtype: EntitySubtypeForKind<K> | null;
+    }
+  : never;
 
 export type EntitySubtype = EntitySubtypeByKind[EntityKind];
