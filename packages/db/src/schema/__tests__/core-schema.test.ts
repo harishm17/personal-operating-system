@@ -1,24 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createDb } from '../../index';
+import { setupTask2SchemaDb } from './schema-test-helpers';
 
-describe('core schema', () => {
-  let dbClient!: ReturnType<typeof createDb>;
+const maybeDescribe = process.env.DATABASE_URL ? describe : describe.skip;
 
-  beforeAll(() => {
-    dbClient = createDb();
+maybeDescribe('core schema', () => {
+  let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
+  let cleanup = async () => undefined;
+
+  beforeAll(async () => {
+    ({ dbClient, cleanup } = await setupTask2SchemaDb([
+      '001_bootstrap.sql',
+      '002_core_entities.sql',
+      '003_capture_pipeline.sql',
+      '004_task2_integrity_backfill.sql',
+    ]));
   });
 
   afterAll(async () => {
-    await dbClient.pool.end();
+    await cleanup();
   });
 
   it('creates root entity tables', async () => {
     const result = await dbClient.db.execute(sql`
       select table_name
       from information_schema.tables
-      where table_schema = 'public'
+      where table_schema = current_schema()
         and table_name in ('entities', 'actors', 'contexts', 'work_items', 'events', 'resources', 'memory_items', 'rules')
     `);
 
@@ -80,7 +88,8 @@ describe('core schema', () => {
     const result = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
-      where table_name = 'entities'
+      where table_schema = current_schema()
+        and table_name = 'entities'
         and constraint_name = 'entities_source_capture_id_fkey'
         and constraint_type = 'FOREIGN KEY'
     `);

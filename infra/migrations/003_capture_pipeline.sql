@@ -89,9 +89,10 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'attachments'
+    WHERE table_schema = current_schema()
+      AND table_name = 'attachments'
       AND column_name IN ('capture_id', 'segment_id')
-    GROUP BY table_name
+    GROUP BY table_schema, table_name
     HAVING count(*) = 2
   ) THEN
     CREATE TRIGGER attachments_sync_capture_id
@@ -170,9 +171,10 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'candidate_entities'
+    WHERE table_schema = current_schema()
+      AND table_name = 'candidate_entities'
       AND column_name IN ('promoted_entity_id', 'promoted_entity_kind')
-    GROUP BY table_name
+    GROUP BY table_schema, table_name
     HAVING count(*) = 2
   ) THEN
     CREATE TRIGGER candidate_entities_sync_promoted_entity_kind
@@ -186,7 +188,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entities
       ADD CONSTRAINT entities_source_capture_id_fkey

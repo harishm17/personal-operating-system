@@ -1,104 +1,116 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDb } from '../../index';
+import { sql } from 'drizzle-orm';
+import { setupTask2SchemaDb } from './schema-test-helpers';
 
 const maybeDescribe = process.env.DATABASE_URL ? describe : describe.skip;
 
-const readMigration = (name: string) =>
-  readFileSync(new URL(`../../../../../infra/migrations/${name}`, import.meta.url), 'utf8');
-
 maybeDescribe('task 2 backfill migration', () => {
-  let dbClient!: ReturnType<typeof createDb>;
+  let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
+  let cleanup = async () => undefined;
 
-  beforeAll(() => {
-    dbClient = createDb();
+  beforeAll(async () => {
+    ({ dbClient, cleanup } = await setupTask2SchemaDb([
+      '001_bootstrap.sql',
+      '002_core_entities.sql',
+      '003_capture_pipeline.sql',
+    ]));
   });
 
   afterAll(async () => {
-    await dbClient.pool.end();
+    await cleanup();
   });
 
   it('repairs dirty legacy state and is safe to replay', async () => {
-    const client = await dbClient.pool.connect();
-    const schema = `task2_${randomUUID().replace(/-/g, '')}`;
+    const captureA = randomUUID();
+    const captureB = randomUUID();
+    const partA = randomUUID();
+    const segmentId = randomUUID();
+    const orphanEntityId = randomUUID();
+    const validEntityId = randomUUID();
 
-    try {
-      await client.query('begin');
-      await client.query(`create schema "${schema}"`);
-      await client.query(`set local search_path to "${schema}", public`);
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureA}, 'web', 'chat', 'capture a', ${randomUUID()}), (${captureB}, 'web', 'chat', 'capture b', ${randomUUID()})
+    `);
 
-      for (const migrationName of ['001_bootstrap.sql', '002_core_entities.sql', '003_capture_pipeline.sql']) {
-        await client.query(readMigration(migrationName));
-      }
+    await dbClient.db.execute(sql`
+      insert into capture_parts (id, capture_id, part_index, kind, content_text)
+      values (${partA}, ${captureA}, 0, 'message', 'part a')
+    `);
 
-      const captureA = randomUUID();
-      const captureB = randomUUID();
-      const partA = randomUUID();
-      const segmentId = randomUUID();
-      const orphanEntityId = randomUUID();
-      const validEntityId = randomUUID();
+    await dbClient.db.execute(sql`
+      alter table capture_segments drop constraint if exists capture_segments_capture_part_capture_id_fkey
+    `);
+    await dbClient.db.execute(sql`
+      alter table actors drop constraint if exists actors_entity_kind_fk
+    `);
 
-      await client.query(
-        `insert into captures (id, channel, source_type, content_text, client_request_id)
-         values ($1, 'web', 'chat', 'capture a', $2), ($3, 'web', 'chat', 'capture b', $4)`,
-        [captureA, randomUUID(), captureB, randomUUID()],
+    await dbClient.db.execute(sql`
+      insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
+      values (${segmentId}, ${partA}, ${captureB}, 0, 'sentence', 'legacy mismatched segment')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into entities (id, kind, title)
+      values (${validEntityId}, 'actor', 'valid actor')
+    `);
+    await dbClient.db.execute(sql`
+      insert into actors (entity_id, kind, title)
+      values (${validEntityId}, 'actor', 'valid actor')
+    `);
+    await dbClient.db.execute(sql`
+      insert into actors (entity_id, kind, title)
+      values (${orphanEntityId}, 'actor', 'orphan actor')
+    `);
+
+    for (const migrationName of ['004_task2_integrity_backfill.sql', '004_task2_integrity_backfill.sql']) {
+      const migrationSql = readFileSync(
+        new URL(`../../../../../infra/migrations/${migrationName}`, import.meta.url),
+        'utf8',
       );
-
-      await client.query(
-        `insert into capture_parts (id, capture_id, part_index, kind, content_text)
-         values ($1, $2, 0, 'message', 'part a')`,
-        [partA, captureA],
-      );
-
-      await client.query(`alter table capture_segments drop constraint if exists capture_segments_capture_part_capture_id_fkey`);
-      await client.query(`alter table actors drop constraint if exists actors_entity_kind_fk`);
-
-      await client.query(
-        `insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
-         values ($1, $2, $3, 0, 'sentence', 'legacy mismatched segment')`,
-        [segmentId, partA, captureB],
-      );
-
-      await client.query(
-        `insert into entities (id, kind, title)
-         values ($1, 'actor', 'valid actor')`,
-        [validEntityId],
-      );
-      await client.query(
-        `insert into actors (entity_id, kind, title)
-         values ($1, 'actor', 'valid actor')`,
-        [validEntityId],
-      );
-      await client.query(
-        `insert into actors (entity_id, kind, title)
-         values ($1, 'actor', 'orphan actor')`,
-        [orphanEntityId],
-      );
-
-      for (const migrationName of ['004_task2_integrity_backfill.sql', '004_task2_integrity_backfill.sql']) {
-        await client.query(readMigration(migrationName));
-      }
-
-      const repairedSegment = await client.query(
-        `select capture_id from capture_segments where id = $1`,
-        [segmentId],
-      );
-      const orphanActor = await client.query(
-        `select count(*)::int as count from actors where entity_id = $1`,
-        [orphanEntityId],
-      );
-      const validActor = await client.query(
-        `select count(*)::int as count from actors where entity_id = $1`,
-        [validEntityId],
-      );
-
-      expect(repairedSegment.rows[0]?.capture_id).toBe(captureA);
-      expect(orphanActor.rows[0]?.count).toBe(0);
-      expect(validActor.rows[0]?.count).toBe(1);
-    } finally {
-      await client.query('rollback').catch(() => undefined);
-      client.release();
+      await dbClient.pool.query(migrationSql);
     }
+
+    const repairedSegment = await dbClient.db.execute(sql`
+      select capture_id
+      from capture_segments
+      where id = ${segmentId}
+    `);
+    const orphanActor = await dbClient.db.execute(sql`
+      select count(*)::int as count
+      from actors
+      where entity_id = ${orphanEntityId}
+    `);
+    const validActor = await dbClient.db.execute(sql`
+      select count(*)::int as count
+      from actors
+      where entity_id = ${validEntityId}
+    `);
+    const restoredConstraint = await dbClient.db.execute(sql`
+      select 1
+      from information_schema.table_constraints
+      where table_schema = current_schema()
+        and table_name = 'capture_segments'
+        and constraint_name = 'capture_segments_capture_part_capture_id_fkey'
+        and constraint_type = 'FOREIGN KEY'
+    `);
+    const restoredTrigger = await dbClient.db.execute(sql`
+      select 1
+      from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = current_schema()
+        and c.relname = 'attachments'
+        and t.tgname = 'attachments_sync_capture_id'
+        and not t.tgisinternal
+    `);
+
+    expect(repairedSegment.rows[0]?.capture_id).toBe(captureA);
+    expect(orphanActor.rows[0]?.count).toBe(0);
+    expect(validActor.rows[0]?.count).toBe(1);
+    expect(restoredConstraint.rows).toHaveLength(1);
+    expect(restoredTrigger.rows).toHaveLength(1);
   });
 });

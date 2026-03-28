@@ -67,7 +67,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_kind_registry'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entities
       ADD CONSTRAINT entities_kind_registry CHECK (
@@ -76,14 +76,14 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_id_kind_unique'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_id_kind_unique' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entities
       ADD CONSTRAINT entities_id_kind_unique UNIQUE (id, kind);
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_subtype_registry'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_subtype_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entities
       ADD CONSTRAINT entities_subtype_registry CHECK (
@@ -101,7 +101,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entities
       ADD CONSTRAINT entities_source_capture_id_fkey
@@ -191,18 +191,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'actors' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'actors' AND column_name = 'kind') THEN
     ALTER TABLE actors ADD COLUMN kind text;
   END IF;
   UPDATE actors SET kind = 'actor' WHERE kind IS NULL;
   ALTER TABLE actors ALTER COLUMN kind SET DEFAULT 'actor';
   ALTER TABLE actors ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE actors ADD CONSTRAINT actors_kind_registry CHECK (kind = 'actor');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE actors
       ADD CONSTRAINT actors_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -211,18 +211,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contexts' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'contexts' AND column_name = 'kind') THEN
     ALTER TABLE contexts ADD COLUMN kind text;
   END IF;
   UPDATE contexts SET kind = 'context' WHERE kind IS NULL;
   ALTER TABLE contexts ALTER COLUMN kind SET DEFAULT 'context';
   ALTER TABLE contexts ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE contexts ADD CONSTRAINT contexts_kind_registry CHECK (kind = 'context');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE contexts
       ADD CONSTRAINT contexts_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -231,18 +231,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'work_items' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'work_items' AND column_name = 'kind') THEN
     ALTER TABLE work_items ADD COLUMN kind text;
   END IF;
   UPDATE work_items SET kind = 'work_item' WHERE kind IS NULL;
   ALTER TABLE work_items ALTER COLUMN kind SET DEFAULT 'work_item';
   ALTER TABLE work_items ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE work_items ADD CONSTRAINT work_items_kind_registry CHECK (kind = 'work_item');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE work_items
       ADD CONSTRAINT work_items_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -251,18 +251,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'events' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'events' AND column_name = 'kind') THEN
     ALTER TABLE events ADD COLUMN kind text;
   END IF;
   UPDATE events SET kind = 'event' WHERE kind IS NULL;
   ALTER TABLE events ALTER COLUMN kind SET DEFAULT 'event';
   ALTER TABLE events ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE events ADD CONSTRAINT events_kind_registry CHECK (kind = 'event');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE events
       ADD CONSTRAINT events_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -271,18 +271,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'resources' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'resources' AND column_name = 'kind') THEN
     ALTER TABLE resources ADD COLUMN kind text;
   END IF;
   UPDATE resources SET kind = 'resource' WHERE kind IS NULL;
   ALTER TABLE resources ALTER COLUMN kind SET DEFAULT 'resource';
   ALTER TABLE resources ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE resources ADD CONSTRAINT resources_kind_registry CHECK (kind = 'resource');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE resources
       ADD CONSTRAINT resources_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -291,18 +291,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'memory_items' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'memory_items' AND column_name = 'kind') THEN
     ALTER TABLE memory_items ADD COLUMN kind text;
   END IF;
   UPDATE memory_items SET kind = 'memory' WHERE kind IS NULL;
   ALTER TABLE memory_items ALTER COLUMN kind SET DEFAULT 'memory';
   ALTER TABLE memory_items ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE memory_items ADD CONSTRAINT memory_items_kind_registry CHECK (kind = 'memory');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE memory_items
       ADD CONSTRAINT memory_items_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -311,18 +311,18 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'rules' AND column_name = 'kind') THEN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'rules' AND column_name = 'kind') THEN
     ALTER TABLE rules ADD COLUMN kind text;
   END IF;
   UPDATE rules SET kind = 'rule' WHERE kind IS NULL;
   ALTER TABLE rules ALTER COLUMN kind SET DEFAULT 'rule';
   ALTER TABLE rules ALTER COLUMN kind SET NOT NULL;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_kind_registry') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE rules ADD CONSTRAINT rules_kind_registry CHECK (kind = 'rule');
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_entity_kind_fk') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_entity_kind_fk' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())) THEN
     ALTER TABLE rules
       ADD CONSTRAINT rules_entity_kind_fk FOREIGN KEY (entity_id, kind)
       REFERENCES entities(id, kind) ON DELETE CASCADE;
@@ -471,7 +471,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS capture_segments_id_capture_id_unique
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'capture_events_capture_session_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'capture_events_capture_session_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE capture_events
       ADD CONSTRAINT capture_events_capture_session_capture_id_fkey
@@ -482,7 +482,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'capture_segments_capture_part_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'capture_segments_capture_part_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE capture_segments
       ADD CONSTRAINT capture_segments_capture_part_capture_id_fkey
@@ -493,7 +493,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'capture_segments_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'capture_segments_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE capture_segments
       ADD CONSTRAINT capture_segments_capture_id_fkey
@@ -504,7 +504,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'attachments_segment_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'attachments_segment_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE attachments
       ADD CONSTRAINT attachments_segment_id_fkey
@@ -536,9 +536,10 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'attachments'
+    WHERE table_schema = current_schema()
+      AND table_name = 'attachments'
       AND column_name IN ('capture_id', 'segment_id')
-    GROUP BY table_name
+    GROUP BY table_schema, table_name
     HAVING count(*) = 2
   ) THEN
     CREATE TRIGGER attachments_sync_capture_id
@@ -552,7 +553,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_segment_capture_id_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_segment_capture_id_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_segment_capture_id_fkey
@@ -563,7 +564,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_promoted_entity_id_kind_fkey'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_promoted_entity_id_kind_fkey' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_promoted_entity_id_kind_fkey
@@ -574,7 +575,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_confidence_range_check'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_confidence_range_check' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_confidence_range_check CHECK (confidence >= 0 AND confidence <= 1);
@@ -584,7 +585,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_promoted_entity_pair_check'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_promoted_entity_pair_check' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_promoted_entity_pair_check CHECK (
@@ -597,7 +598,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_kind_registry'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_kind_registry CHECK (
@@ -606,7 +607,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_subtype_registry'
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_subtype_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE candidate_entities
       ADD CONSTRAINT candidate_entities_subtype_registry CHECK (
@@ -627,7 +628,7 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entity_relations_kind_registry'
+    SELECT 1 FROM pg_constraint WHERE conname = 'entity_relations_kind_registry' AND connamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     ALTER TABLE entity_relations
       ADD CONSTRAINT entity_relations_kind_registry CHECK (

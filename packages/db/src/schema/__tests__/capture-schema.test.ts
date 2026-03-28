@@ -1,24 +1,32 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createDb } from '../../index';
+import { setupTask2SchemaDb } from './schema-test-helpers';
 
-describe('capture schema', () => {
-  let dbClient!: ReturnType<typeof createDb>;
+const maybeDescribe = process.env.DATABASE_URL ? describe : describe.skip;
 
-  beforeAll(() => {
-    dbClient = createDb();
+maybeDescribe('capture schema', () => {
+  let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
+  let cleanup = async () => undefined;
+
+  beforeAll(async () => {
+    ({ dbClient, cleanup } = await setupTask2SchemaDb([
+      '001_bootstrap.sql',
+      '002_core_entities.sql',
+      '003_capture_pipeline.sql',
+      '004_task2_integrity_backfill.sql',
+    ]));
   });
 
   afterAll(async () => {
-    await dbClient.pool.end();
+    await cleanup();
   });
 
   it('creates capture pipeline tables', async () => {
     const result = await dbClient.db.execute(sql`
       select table_name
       from information_schema.tables
-      where table_schema = 'public'
+      where table_schema = current_schema()
         and table_name in ('captures', 'capture_sessions', 'capture_events', 'capture_parts', 'capture_segments', 'attachments', 'inbox_items', 'candidate_entities')
     `);
 
@@ -29,7 +37,7 @@ describe('capture schema', () => {
     const candidateColumns = await dbClient.db.execute(sql`
       select column_name
       from information_schema.columns
-      where table_schema = 'public'
+      where table_schema = current_schema()
         and table_name = 'candidate_entities'
         and column_name in ('promoted_entity_id', 'promoted_entity_kind')
     `);
@@ -37,7 +45,8 @@ describe('capture schema', () => {
     const candidateFk = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
-      where table_name = 'candidate_entities'
+      where table_schema = current_schema()
+        and table_name = 'candidate_entities'
         and constraint_name = 'candidate_entities_promoted_entity_id_kind_fkey'
         and constraint_type = 'FOREIGN KEY'
     `);
@@ -45,7 +54,8 @@ describe('capture schema', () => {
     const confidenceCheck = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
-      where table_name = 'candidate_entities'
+      where table_schema = current_schema()
+        and table_name = 'candidate_entities'
         and constraint_name = 'candidate_entities_confidence_range_check'
         and constraint_type = 'CHECK'
     `);
@@ -53,7 +63,8 @@ describe('capture schema', () => {
     const attachmentFk = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
-      where table_name = 'attachments'
+      where table_schema = current_schema()
+        and table_name = 'attachments'
         and constraint_name = 'attachments_segment_id_fkey'
         and constraint_type = 'FOREIGN KEY'
     `);
@@ -83,12 +94,12 @@ describe('capture schema', () => {
 
     await dbClient.db.execute(sql`
       insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
-      values (${segmentA}, ${partA}, ${captureB}, 0, 'sentence', 'segment a')
+      values (${segmentA}, ${partA}, ${captureA}, 0, 'sentence', 'segment a')
     `);
 
     await dbClient.db.execute(sql`
       insert into attachments (id, capture_id, segment_id, file_name, storage_key)
-      values (${attachmentId}, ${captureA}, ${segmentA}, 'file.txt', 'storage-key')
+      values (${attachmentId}, ${captureB}, ${segmentA}, 'file.txt', 'storage-key')
     `);
 
     const inserted = await dbClient.db.execute(sql`
@@ -97,11 +108,11 @@ describe('capture schema', () => {
       where id = ${attachmentId}
     `);
 
-    expect(inserted.rows[0]).toEqual({ captureId: captureB, segmentId: segmentA });
+    expect(inserted.rows[0]).toEqual({ captureId: captureA, segmentId: segmentA });
 
     await dbClient.db.execute(sql`
       update attachments
-      set capture_id = ${captureA}
+      set capture_id = ${captureB}
       where id = ${attachmentId}
     `);
 
@@ -111,7 +122,7 @@ describe('capture schema', () => {
       where id = ${attachmentId}
     `);
 
-    expect(normalized.rows[0]).toEqual({ captureId: captureB, segmentId: segmentA });
+    expect(normalized.rows[0]).toEqual({ captureId: captureA, segmentId: segmentA });
 
     await dbClient.db.execute(sql`
       delete from capture_segments
@@ -124,7 +135,7 @@ describe('capture schema', () => {
       where id = ${attachmentId}
     `);
 
-    expect(detached.rows[0]).toEqual({ captureId: captureB, segmentId: null });
+    expect(detached.rows[0]).toEqual({ captureId: captureA, segmentId: null });
   });
 
   it('rejects invalid candidate kinds, subtype combinations, and mismatched promotion links', async () => {
