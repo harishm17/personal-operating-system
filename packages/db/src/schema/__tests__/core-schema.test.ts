@@ -3,9 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { setupTask2SchemaDb } from './schema-test-helpers';
 
-const maybeDescribe = process.env.DATABASE_URL ? describe : describe.skip;
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for @assistant/db tests');
+}
 
-maybeDescribe('core schema', () => {
+describe('core schema', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
   let cleanup = async () => undefined;
 

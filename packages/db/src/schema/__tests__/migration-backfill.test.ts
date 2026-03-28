@@ -4,9 +4,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { setupTask2SchemaDb } from './schema-test-helpers';
 
-const maybeDescribe = process.env.DATABASE_URL ? describe : describe.skip;
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for @assistant/db tests');
+}
 
-maybeDescribe('task 2 backfill migration', () => {
+describe('task 2 backfill migration', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
   let cleanup = async () => undefined;
 
@@ -112,5 +114,70 @@ maybeDescribe('task 2 backfill migration', () => {
     expect(validActor.rows[0]?.count).toBe(1);
     expect(restoredConstraint.rows).toHaveLength(1);
     expect(restoredTrigger.rows).toHaveLength(1);
+  });
+
+  it('preserves document evidence from subtype tables and normalizes ambiguous document rows', async () => {
+    const evidenceContextEntityId = randomUUID();
+    const evidenceResourceEntityId = randomUUID();
+    const ambiguousEntityId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      alter table entities drop constraint if exists entities_kind_registry
+    `);
+    await dbClient.db.execute(sql`
+      alter table entities drop constraint if exists entities_subtype_registry
+    `);
+    await dbClient.db.execute(sql`
+      alter table contexts drop constraint if exists contexts_entity_kind_fk
+    `);
+    await dbClient.db.execute(sql`
+      alter table resources drop constraint if exists resources_entity_kind_fk
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into entities (id, kind, subtype, title)
+      values
+        (${evidenceContextEntityId}, 'legacy', 'document', 'context document'),
+        (${evidenceResourceEntityId}, 'legacy', 'document', 'resource document'),
+        (${ambiguousEntityId}, 'legacy', 'document', 'ambiguous document')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into contexts (entity_id, kind, title)
+      values (${evidenceContextEntityId}, 'context', 'context document')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into resources (entity_id, kind, title)
+      values (${evidenceResourceEntityId}, 'resource', 'resource document')
+    `);
+
+    for (const migrationName of ['004_task2_integrity_backfill.sql', '004_task2_integrity_backfill.sql']) {
+      const migrationSql = readFileSync(
+        new URL(`../../../../../infra/migrations/${migrationName}`, import.meta.url),
+        'utf8',
+      );
+      await dbClient.pool.query(migrationSql);
+    }
+
+    const contextEntity = await dbClient.db.execute(sql`
+      select kind, subtype
+      from entities
+      where id = ${evidenceContextEntityId}
+    `);
+    const resourceEntity = await dbClient.db.execute(sql`
+      select kind, subtype
+      from entities
+      where id = ${evidenceResourceEntityId}
+    `);
+    const ambiguousEntity = await dbClient.db.execute(sql`
+      select kind, subtype
+      from entities
+      where id = ${ambiguousEntityId}
+    `);
+
+    expect(contextEntity.rows[0]).toEqual({ kind: 'context', subtype: 'document' });
+    expect(resourceEntity.rows[0]).toEqual({ kind: 'resource', subtype: 'document' });
+    expect(ambiguousEntity.rows[0]).toEqual({ kind: 'resource', subtype: null });
   });
 });

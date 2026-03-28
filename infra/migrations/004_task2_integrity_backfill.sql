@@ -30,13 +30,18 @@ BEGIN
   UPDATE entities
   SET kind = CASE
     WHEN subtype IN ('person', 'assistant', 'system', 'team', 'service') THEN 'actor'
-    WHEN subtype IN ('workspace', 'project', 'conversation', 'thread', 'document') THEN 'context'
+    WHEN subtype IN ('workspace', 'project', 'conversation', 'thread') THEN 'context'
     WHEN subtype IN ('task', 'bug', 'feature', 'decision', 'note') THEN 'work_item'
     WHEN subtype IN ('message', 'state_change', 'capture', 'observation', 'deadline') THEN 'event'
-    WHEN subtype IN ('document', 'webpage', 'link', 'file', 'snippet', 'artifact') THEN 'resource'
+    WHEN subtype IN ('webpage', 'link', 'file', 'snippet', 'artifact') THEN 'resource'
     WHEN subtype IN ('fact', 'preference', 'summary', 'pattern') THEN 'memory'
     WHEN subtype IN ('policy', 'constraint', 'workflow', 'guardrail') THEN 'rule'
+    WHEN subtype = 'document' THEN 'resource'
     ELSE 'resource'
+  END,
+  subtype = CASE
+    WHEN subtype = 'document' THEN NULL
+    ELSE subtype
   END
   WHERE kind IS NULL
     OR kind NOT IN ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule');
