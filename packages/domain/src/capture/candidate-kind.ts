@@ -1,10 +1,6 @@
-export const CANDIDATE_KINDS = [
-  'entity',
-  'relation',
-  'capture_part',
-  'capture_segment',
-  'attachment',
-  'inbox_item',
-] as const;
+import type { EntityKind } from '../entities/entity-kind';
+import { ENTITY_KINDS } from '../entities/entity-kind';
 
-export type CandidateKind = (typeof CANDIDATE_KINDS)[number];
+export const CANDIDATE_KINDS = ENTITY_KINDS;
+
+export type CandidateKind = EntityKind;

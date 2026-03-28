@@ -4,8 +4,8 @@ export const ENTITY_SUBTYPES = {
   actor: ['person', 'assistant', 'system', 'team', 'service'],
   context: ['workspace', 'project', 'conversation', 'thread', 'document'],
   work_item: ['task', 'bug', 'feature', 'decision', 'note'],
-  event: ['message', 'state_change', 'capture', 'observation'],
-  resource: ['document', 'link', 'file', 'snippet', 'artifact'],
+  event: ['message', 'state_change', 'capture', 'observation', 'deadline'],
+  resource: ['document', 'webpage', 'link', 'file', 'snippet', 'artifact'],
   memory: ['fact', 'preference', 'summary', 'pattern'],
   rule: ['policy', 'constraint', 'workflow', 'guardrail'],
 } as const satisfies Record<EntityKind, readonly string[]>;
