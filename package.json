@@ -1,0 +1,15 @@
+{
+  "name": "assistant-os",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "test": "turbo run test",
+    "db:migrate": "for file in infra/migrations/*.sql; do psql \"$DATABASE_URL\" -f \"$file\"; done"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  }
+}
