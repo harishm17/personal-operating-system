@@ -21,15 +21,12 @@ export class CaptureService {
   async createCapture(dto: CreateCaptureDto) {
     this.validateCreateCaptureDto(dto);
 
-    const existingCapture = await this.captureRepository.findCaptureByClientRequestId(
-      dto.clientRequestId,
-    );
-    if (existingCapture) {
-      this.assertSameRequest(existingCapture, dto);
-      return this.reconcileReplay(existingCapture);
+    const { capture, created } = await this.captureRepository.insertCapture(dto);
+    if (!created) {
+      this.assertSameRequest(capture, dto);
+      return this.reconcileReplay(capture);
     }
 
-    const capture = await this.captureRepository.insertCapture(dto);
     const inboxItem = await this.captureRepository.findOrCreateInboxItem({
       captureId: capture.id,
       itemType: 'capture_review',

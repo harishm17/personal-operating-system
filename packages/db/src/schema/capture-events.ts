@@ -1,4 +1,4 @@
-import { foreignKey, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { foreignKey, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { captureSessions } from './capture-sessions';
 import { captures } from './captures';
@@ -16,6 +16,10 @@ export const captureEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
+    captureKindUnique: uniqueIndex('capture_events_capture_id_kind_unique').on(
+      table.captureId,
+      table.kind,
+    ),
     captureSessionFk: foreignKey({
       columns: [table.captureSessionId, table.captureId],
       foreignColumns: [captureSessions.id, captureSessions.captureId],

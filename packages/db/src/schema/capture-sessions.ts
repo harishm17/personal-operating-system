@@ -16,6 +16,13 @@ export const captureSessions = pgTable(
     endedAt: timestamp('ended_at', { withTimezone: true }),
   },
   (table) => ({
-    idCaptureUnique: uniqueIndex('capture_sessions_id_capture_id_unique').on(table.id, table.captureId),
+    idCaptureUnique: uniqueIndex('capture_sessions_id_capture_id_unique').on(
+      table.id,
+      table.captureId,
+    ),
+    captureSessionKeyUnique: uniqueIndex('capture_sessions_capture_id_session_key_unique').on(
+      table.captureId,
+      table.sessionKey,
+    ),
   }),
 );

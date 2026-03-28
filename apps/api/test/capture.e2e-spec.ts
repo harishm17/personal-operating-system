@@ -67,6 +67,16 @@ async function deleteCaptureSideEffects(dbClient: DbConnection, captureId: strin
   await dbClient.pool.query('delete from inbox_items where capture_id = $1', [captureId]);
 }
 
+
+async function countCapturesByClientRequestId(dbClient: DbConnection, clientRequestId: string) {
+  const result = await dbClient.pool.query<{ count: string }>(
+    'select count(*) as count from captures where client_request_id = $1',
+    [clientRequestId],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
 async function createTestApp() {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -210,6 +220,39 @@ describe('Capture API', () => {
     expect(firstResponse.status).toBe(201);
     expect(secondResponse.status).toBe(201);
     expect(secondResponse.body.capture.id).toBe(firstResponse.body.capture.id);
+  });
+
+
+  it('POST /captures deduplicates concurrent same-clientRequestId requests into one capture row and side-effect set', async () => {
+    await withTestApp(async (app) => {
+      const captureRepository = app.get<CaptureRepository>(CAPTURE_REPOSITORY);
+      const dbConnection = app.get<DbConnection>(DB_CONNECTION);
+      const payload = {
+        channel: 'web',
+        sourceType: 'quick_capture',
+        contentText: 'Concurrent duplicate requests should collapse into one capture',
+        clientRequestId: 'cap_concurrent_1',
+      };
+
+      const responses = await Promise.all(
+        Array.from({ length: 12 }, () =>
+          request(app.getHttpServer()).post('/captures').send(payload),
+        ),
+      );
+
+      expect(responses.every((response) => response.status === 201)).toBe(true);
+
+      const captureIds = new Set(
+        responses.map((response) => response.body.capture.id as string),
+      );
+      expect(captureIds.size).toBe(1);
+
+      const captureId = responses[0]?.body.capture.id as string;
+      expect(await countCapturesByClientRequestId(dbConnection, payload.clientRequestId)).toBe(1);
+      expect(await captureRepository.listInboxItemsByCaptureId(captureId)).toHaveLength(1);
+      expect(await captureRepository.listCaptureSessionsByCaptureId(captureId)).toHaveLength(1);
+      expect(await captureRepository.listCaptureEventsByCaptureId(captureId)).toHaveLength(1);
+    });
   });
 
   it('POST /captures repairs missing side effects on clientRequestId replay', async () => {

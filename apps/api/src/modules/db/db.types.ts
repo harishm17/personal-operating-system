@@ -14,6 +14,11 @@ export interface CaptureRecord {
   createdAt: Date;
 }
 
+export interface CaptureWriteResult {
+  capture: CaptureRecord;
+  created: boolean;
+}
+
 export interface InboxItemRecord {
   id: string;
   captureId: string | null;
@@ -64,7 +69,7 @@ export interface InsertCaptureEventInput {
 }
 
 export interface CaptureRepository {
-  insertCapture(dto: CreateCaptureDto): Promise<CaptureRecord>;
+  insertCapture(dto: CreateCaptureDto): Promise<CaptureWriteResult>;
   findCaptureById(captureId: string): Promise<CaptureRecord | undefined>;
   findCaptureByClientRequestId(clientRequestId: string): Promise<CaptureRecord | undefined>;
   findInboxItemByCaptureId(captureId: string): Promise<InboxItemRecord | undefined>;

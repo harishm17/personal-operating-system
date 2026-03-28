@@ -44,6 +44,83 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(8);
   });
 
+
+  it('enforces unique capture request ids and replay singleton side effects', async () => {
+    const captureId = randomUUID();
+    const sessionId = randomUUID();
+    const inboxItemId = randomUUID();
+    const eventId = randomUUID();
+    const clientRequestId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureId}, 'web', 'quick_capture', 'capture uniqueness seed', ${clientRequestId})
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into captures (id, channel, source_type, content_text, client_request_id)
+        values (${randomUUID()}, 'web', 'quick_capture', 'duplicate client request id', ${clientRequestId})
+      `),
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'captures_client_request_id_unique',
+      },
+    });
+
+    await dbClient.db.execute(sql`
+      insert into inbox_items (id, capture_id, item_type, title)
+      values (${inboxItemId}, ${captureId}, 'capture_review', 'singleton inbox item')
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into inbox_items (id, capture_id, item_type, title)
+        values (${randomUUID()}, ${captureId}, 'capture_review', 'duplicate singleton inbox item')
+      `),
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'inbox_items_capture_id_item_type_unique',
+      },
+    });
+
+    await dbClient.db.execute(sql`
+      insert into capture_sessions (id, capture_id, session_key)
+      values (${sessionId}, ${captureId}, 'capture:web:singleton')
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_sessions (id, capture_id, session_key)
+        values (${randomUUID()}, ${captureId}, 'capture:web:singleton')
+      `),
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'capture_sessions_capture_id_session_key_unique',
+      },
+    });
+
+    await dbClient.db.execute(sql`
+      insert into capture_events (id, capture_id, kind)
+      values (${eventId}, ${captureId}, 'capture_received')
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_events (id, capture_id, kind)
+        values (${randomUUID()}, ${captureId}, 'capture_received')
+      `),
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'capture_events_capture_id_kind_unique',
+      },
+    });
+  });
+
   it('includes capture_jobs for durable process-capture enqueues', async () => {
     const result = await dbClient.db.execute(sql`
       select 1

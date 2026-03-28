@@ -6,7 +6,8 @@ create table if not exists captures (
   client_request_id text not null,
   status text not null default 'received',
   metadata jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint captures_client_request_id_unique unique (client_request_id)
 );
 
 create table if not exists capture_sessions (
@@ -17,7 +18,8 @@ create table if not exists capture_sessions (
   metadata jsonb not null default '{}'::jsonb,
   started_at timestamptz not null default now(),
   ended_at timestamptz,
-  constraint capture_sessions_id_capture_id_unique unique (id, capture_id)
+  constraint capture_sessions_id_capture_id_unique unique (id, capture_id),
+  constraint capture_sessions_capture_id_session_key_unique unique (capture_id, session_key)
 );
 
 create table if not exists capture_events (
@@ -27,6 +29,7 @@ create table if not exists capture_events (
   kind text not null,
   payload_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
+  constraint capture_events_capture_id_kind_unique unique (capture_id, kind),
   constraint capture_events_capture_session_capture_id_fkey foreign key (capture_session_id, capture_id) references capture_sessions(id, capture_id) on delete cascade
 );
 
@@ -110,7 +113,8 @@ create table if not exists inbox_items (
   status text not null default 'open',
   title text not null,
   payload_json jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint inbox_items_capture_id_item_type_unique unique (capture_id, item_type)
 );
 
 create table if not exists candidate_entities (

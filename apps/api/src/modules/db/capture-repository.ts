@@ -8,6 +8,7 @@ import type {
   CaptureRepository,
   CaptureRecord,
   CaptureSessionRecord,
+  CaptureWriteResult,
   DbConnection,
   InboxItemRecord,
   InsertCaptureEventInput,
@@ -19,7 +20,7 @@ import type {
 export class PostgresCaptureRepository implements CaptureRepository {
   constructor(@Inject(DB_CONNECTION) private readonly connection: DbConnection) {}
 
-  async insertCapture(dto: CreateCaptureDto): Promise<CaptureRecord> {
+  async insertCapture(dto: CreateCaptureDto): Promise<CaptureWriteResult> {
     const [capture] = await this.connection.db
       .insert(captures)
       .values({
@@ -29,9 +30,17 @@ export class PostgresCaptureRepository implements CaptureRepository {
         clientRequestId: dto.clientRequestId,
         metadata: dto.metadata ?? {},
       })
+      .onConflictDoNothing({ target: captures.clientRequestId })
       .returning();
 
-    return capture;
+    if (capture) {
+      return { capture, created: true };
+    }
+
+    return {
+      capture: await this.loadCaptureByClientRequestId(dto.clientRequestId),
+      created: false,
+    };
   }
 
   async findCaptureById(captureId: string): Promise<CaptureRecord | undefined> {
@@ -67,11 +76,6 @@ export class PostgresCaptureRepository implements CaptureRepository {
   }
 
   async findOrCreateInboxItem(input: InsertInboxItemInput): Promise<InboxItemRecord> {
-    const existingInboxItem = await this.findInboxItemByCaptureId(input.captureId);
-    if (existingInboxItem) {
-      return existingInboxItem;
-    }
-
     const [inboxItem] = await this.connection.db
       .insert(inboxItems)
       .values({
@@ -80,9 +84,22 @@ export class PostgresCaptureRepository implements CaptureRepository {
         title: input.title,
         payloadJson: input.payloadJson ?? {},
       })
+      .onConflictDoNothing({ target: [inboxItems.captureId, inboxItems.itemType] })
       .returning();
 
-    return inboxItem;
+    if (inboxItem) {
+      return inboxItem;
+    }
+
+    const existingInboxItem = await this.findInboxItemByCaptureIdAndItemType(
+      input.captureId,
+      input.itemType,
+    );
+    if (!existingInboxItem) {
+      throw new Error(`Expected inbox item for capture ${input.captureId} and type ${input.itemType}`);
+    }
+
+    return existingInboxItem;
   }
 
   async findCaptureSessionBySessionKey(
@@ -101,22 +118,6 @@ export class PostgresCaptureRepository implements CaptureRepository {
   async findOrCreateCaptureSession(
     input: InsertCaptureSessionInput,
   ): Promise<CaptureSessionRecord> {
-    const [existingCaptureSession] = await this.connection.db
-      .select()
-      .from(captureSessions)
-      .where(
-        and(
-          eq(captureSessions.captureId, input.captureId),
-          eq(captureSessions.sessionKey, input.sessionKey),
-        ),
-      )
-      .orderBy(asc(captureSessions.startedAt))
-      .limit(1);
-
-    if (existingCaptureSession) {
-      return existingCaptureSession;
-    }
-
     const [captureSession] = await this.connection.db
       .insert(captureSessions)
       .values({
@@ -124,9 +125,24 @@ export class PostgresCaptureRepository implements CaptureRepository {
         sessionKey: input.sessionKey,
         metadata: input.metadata ?? {},
       })
+      .onConflictDoNothing({ target: [captureSessions.captureId, captureSessions.sessionKey] })
       .returning();
 
-    return captureSession;
+    if (captureSession) {
+      return captureSession;
+    }
+
+    const existingCaptureSession = await this.findCaptureSessionByCaptureIdAndSessionKey(
+      input.captureId,
+      input.sessionKey,
+    );
+    if (!existingCaptureSession) {
+      throw new Error(
+        `Expected capture session for capture ${input.captureId} and key ${input.sessionKey}`,
+      );
+    }
+
+    return existingCaptureSession;
   }
 
   async findCaptureEventByCaptureIdAndKind(
@@ -136,9 +152,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
     const [captureEvent] = await this.connection.db
       .select()
       .from(captureEvents)
-      .where(
-        and(eq(captureEvents.captureId, captureId), eq(captureEvents.kind, kind)),
-      )
+      .where(and(eq(captureEvents.captureId, captureId), eq(captureEvents.kind, kind)))
       .orderBy(asc(captureEvents.createdAt))
       .limit(1);
 
@@ -146,14 +160,6 @@ export class PostgresCaptureRepository implements CaptureRepository {
   }
 
   async findOrCreateCaptureEvent(input: InsertCaptureEventInput): Promise<CaptureEventRecord> {
-    const existingCaptureEvent = await this.findCaptureEventByCaptureIdAndKind(
-      input.captureId,
-      input.kind,
-    );
-    if (existingCaptureEvent) {
-      return existingCaptureEvent;
-    }
-
     const [captureEvent] = await this.connection.db
       .insert(captureEvents)
       .values({
@@ -162,9 +168,22 @@ export class PostgresCaptureRepository implements CaptureRepository {
         kind: input.kind,
         payloadJson: input.payloadJson ?? {},
       })
+      .onConflictDoNothing({ target: [captureEvents.captureId, captureEvents.kind] })
       .returning();
 
-    return captureEvent;
+    if (captureEvent) {
+      return captureEvent;
+    }
+
+    const existingCaptureEvent = await this.findCaptureEventByCaptureIdAndKind(
+      input.captureId,
+      input.kind,
+    );
+    if (!existingCaptureEvent) {
+      throw new Error(`Expected capture event for capture ${input.captureId} and kind ${input.kind}`);
+    }
+
+    return existingCaptureEvent;
   }
 
   async updateCaptureEventSession(
@@ -202,5 +221,47 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .from(captureEvents)
       .where(eq(captureEvents.captureId, captureId))
       .orderBy(asc(captureEvents.createdAt));
+  }
+
+  private async loadCaptureByClientRequestId(clientRequestId: string): Promise<CaptureRecord> {
+    const capture = await this.findCaptureByClientRequestId(clientRequestId);
+    if (!capture) {
+      throw new Error(`Expected capture for clientRequestId ${clientRequestId}`);
+    }
+
+    return capture;
+  }
+
+  private async findInboxItemByCaptureIdAndItemType(
+    captureId: string,
+    itemType: string,
+  ): Promise<InboxItemRecord | undefined> {
+    const [inboxItem] = await this.connection.db
+      .select()
+      .from(inboxItems)
+      .where(and(eq(inboxItems.captureId, captureId), eq(inboxItems.itemType, itemType)))
+      .orderBy(asc(inboxItems.createdAt))
+      .limit(1);
+
+    return inboxItem;
+  }
+
+  private async findCaptureSessionByCaptureIdAndSessionKey(
+    captureId: string,
+    sessionKey: string,
+  ): Promise<CaptureSessionRecord | undefined> {
+    const [captureSession] = await this.connection.db
+      .select()
+      .from(captureSessions)
+      .where(
+        and(
+          eq(captureSessions.captureId, captureId),
+          eq(captureSessions.sessionKey, sessionKey),
+        ),
+      )
+      .orderBy(asc(captureSessions.startedAt))
+      .limit(1);
+
+    return captureSession;
   }
 }
