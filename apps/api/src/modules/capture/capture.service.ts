@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { DbService } from '../db/db.module';
 import { JobsService } from '../jobs/jobs.service';
 import { CaptureEventService } from './capture-event.service';
@@ -21,15 +21,8 @@ export class CaptureService {
 
     const existingCapture = this.dbService.findCaptureByClientRequestId(dto.clientRequestId);
     if (existingCapture) {
-      const existingInboxItem = this.dbService.findInboxItemByCaptureId(existingCapture.id);
-      if (!existingInboxItem) {
-        throw new Error(`Missing inbox item for capture ${existingCapture.id}`);
-      }
-
-      return {
-        capture: existingCapture,
-        inboxItem: existingInboxItem,
-      };
+      this.assertSameRequest(existingCapture, dto);
+      return this.reconcileReplay(existingCapture);
     }
 
     const capture = this.dbService.insertCapture(dto);
@@ -43,16 +36,50 @@ export class CaptureService {
     await this.captureEventService.append(
       capture.id,
       'capture_received',
-      {
-        channel: dto.channel,
-        sourceType: dto.sourceType,
-        contentText: dto.contentText,
-        clientRequestId: dto.clientRequestId,
-        metadata: dto.metadata ?? {},
-      },
+      this.buildCaptureEventPayload(dto),
       captureSession.id,
     );
     await this.jobsService.publish('process-capture', { captureId: capture.id });
+
+    return { capture, inboxItem };
+  }
+
+  private async reconcileReplay(existingCapture: Awaited<ReturnType<DbService['findCaptureByClientRequestId']>>) {
+    const capture = existingCapture;
+    if (!capture) {
+      throw new Error('reconcileReplay called without capture');
+    }
+
+    const inboxItem =
+      this.dbService.findInboxItemByCaptureId(capture.id) ??
+      this.dbService.insertInboxItem({
+        captureId: capture.id,
+        itemType: 'capture_review',
+        title: 'New capture received',
+      });
+
+    const captureSession =
+      this.dbService.findCaptureSessionBySessionKey(`capture:${capture.channel}:${capture.id}`) ??
+      (await this.captureSessionService.recordCreate(capture.id, capture.channel));
+
+    const captureEvent = this.dbService.findCaptureEventByCaptureIdAndKind(capture.id, 'capture_received');
+    if (!captureEvent) {
+      await this.captureEventService.append(
+        capture.id,
+        'capture_received',
+        this.buildCaptureEventPayload(capture),
+        captureSession.id,
+      );
+    } else if (captureEvent.captureSessionId !== captureSession.id) {
+      this.dbService.updateCaptureEventSession(captureEvent.id, captureSession.id);
+    }
+
+    const existingJob = this.jobsService
+      .getPublishedJobs()
+      .find((job) => job.name === 'process-capture' && job.payload.captureId === capture.id);
+    if (!existingJob) {
+      await this.jobsService.publish('process-capture', { captureId: capture.id });
+    }
 
     return { capture, inboxItem };
   }
@@ -65,11 +92,80 @@ export class CaptureService {
     this.assertNonEmpty(dto.sourceType, 'sourceType');
     this.assertNonEmpty(dto.contentText, 'contentText');
     this.assertNonEmpty(dto.clientRequestId, 'clientRequestId');
+
+    if (!this.isPlainJsonObject(dto.metadata)) {
+      throw new BadRequestException('metadata must be a plain JSON object');
+    }
+  }
+
+  private assertSameRequest(
+    capture: {
+      channel: string;
+      sourceType: string;
+      contentText: string;
+      clientRequestId: string;
+      metadata: Record<string, unknown>;
+    },
+    dto: CreateCaptureDto,
+  ) {
+    const fieldsMatch =
+      capture.channel === dto.channel &&
+      capture.sourceType === dto.sourceType &&
+      capture.contentText === dto.contentText &&
+      capture.clientRequestId === dto.clientRequestId &&
+      this.toComparableJson(capture.metadata) === this.toComparableJson(dto.metadata ?? {});
+
+    if (!fieldsMatch) {
+      throw new ConflictException('clientRequestId already exists for a different capture request');
+    }
+  }
+
+  private buildCaptureEventPayload(dto: Pick<CreateCaptureDto, 'channel' | 'sourceType' | 'contentText' | 'clientRequestId' | 'metadata'>) {
+    return {
+      channel: dto.channel,
+      sourceType: dto.sourceType,
+      contentText: dto.contentText,
+      clientRequestId: dto.clientRequestId,
+      metadata: dto.metadata ?? {},
+    };
   }
 
   private assertNonEmpty(value: unknown, fieldName: string) {
     if (typeof value !== 'string' || value.trim().length === 0) {
       throw new BadRequestException(`${fieldName} must be a non-empty string`);
     }
+  }
+
+  private isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+    if (value === undefined) {
+      return true;
+    }
+
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return false;
+    }
+
+    return Object.getPrototypeOf(value) === Object.prototype;
+  }
+
+  private toComparableJson(value: unknown): string {
+    return JSON.stringify(this.sortJsonValue(value));
+  }
+
+  private sortJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.sortJsonValue(entry));
+    }
+
+    if (value && typeof value === 'object') {
+      return Object.keys(value)
+        .sort()
+        .reduce<Record<string, unknown>>((result, key) => {
+          result[key] = this.sortJsonValue((value as Record<string, unknown>)[key]);
+          return result;
+        }, {});
+    }
+
+    return value;
   }
 }

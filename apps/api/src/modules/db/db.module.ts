@@ -147,6 +147,26 @@ export class DbService {
     return this.inboxItems.find((inboxItem) => inboxItem.captureId === captureId);
   }
 
+  findCaptureSessionBySessionKey(sessionKey: string) {
+    return this.captureSessions.find((captureSession) => captureSession.sessionKey === sessionKey);
+  }
+
+  findCaptureEventByCaptureIdAndKind(captureId: string, kind: string) {
+    return this.captureEvents.find(
+      (captureEvent) => captureEvent.captureId === captureId && captureEvent.kind === kind,
+    );
+  }
+
+  updateCaptureEventSession(captureEventId: string, captureSessionId: string) {
+    const captureEvent = this.captureEvents.find((event) => event.id === captureEventId);
+    if (!captureEvent) {
+      return undefined;
+    }
+
+    captureEvent.captureSessionId = captureSessionId;
+    return captureEvent;
+  }
+
   listInboxItemsByCaptureId(captureId: string) {
     return this.inboxItems.filter((inboxItem) => inboxItem.captureId === captureId);
   }
