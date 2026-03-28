@@ -1,4 +1,6 @@
-export type CaptureChannel = 'web' | 'chat' | 'browser_extension';
+export const CAPTURE_CHANNELS = ['web', 'chat', 'browser_extension'] as const;
+
+export type CaptureChannel = (typeof CAPTURE_CHANNELS)[number];
 
 export class CreateCaptureDto {
   channel!: CaptureChannel;

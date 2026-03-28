@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DbService } from '../db/db.module';
 
 @Injectable()
 export class CaptureReadService {
-  constructor(private readonly dbService: DbService) {}
+  constructor(@Inject(DbService) private readonly dbService: DbService) {}
 
   getCapture(captureId: string) {
     return this.dbService.findCaptureById(captureId) ?? null;

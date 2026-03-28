@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DbService } from '../db/db.module';
 import { CaptureChannel } from './dto/create-capture.dto';
 
 @Injectable()
 export class CaptureSessionService {
-  constructor(private readonly dbService: DbService) {}
+  constructor(@Inject(DbService) private readonly dbService: DbService) {}
 
   async recordCreate(captureId: string, channel: CaptureChannel) {
     return this.dbService.insertCaptureSession({

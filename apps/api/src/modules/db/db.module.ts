@@ -139,6 +139,14 @@ export class DbService {
     return this.captures.find((capture) => capture.id === captureId);
   }
 
+  findCaptureByClientRequestId(clientRequestId: string) {
+    return this.captures.find((capture) => capture.clientRequestId === clientRequestId);
+  }
+
+  findInboxItemByCaptureId(captureId: string) {
+    return this.inboxItems.find((inboxItem) => inboxItem.captureId === captureId);
+  }
+
   listInboxItemsByCaptureId(captureId: string) {
     return this.inboxItems.filter((inboxItem) => inboxItem.captureId === captureId);
   }
