@@ -166,6 +166,27 @@ BEGIN
     WHERE entity.id = rule.entity_id
       AND entity.kind IS DISTINCT FROM 'rule'
   );
+
+  DELETE FROM actors
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM contexts
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM work_items
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM events
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM resources
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM memory_items
+  WHERE entity_id NOT IN (SELECT id FROM entities);
+
+  DELETE FROM rules
+  WHERE entity_id NOT IN (SELECT id FROM entities);
 END $$;
 
 DO $$
@@ -328,9 +349,6 @@ FROM capture_parts AS part
 WHERE segment.capture_id IS NULL
   AND segment.capture_part_id = part.id;
 
-ALTER TABLE capture_segments
-  ALTER COLUMN capture_id SET NOT NULL;
-
 DELETE FROM capture_segments
 WHERE NOT EXISTS (
   SELECT 1
@@ -338,6 +356,9 @@ WHERE NOT EXISTS (
   WHERE capture_parts.id = capture_segments.capture_part_id
     AND capture_parts.capture_id = capture_segments.capture_id
 );
+
+ALTER TABLE capture_segments
+  ALTER COLUMN capture_id SET NOT NULL;
 
 UPDATE capture_events AS event
 SET capture_id = session.capture_id

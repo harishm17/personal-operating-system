@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { createDb } from '../../client';
+import { createDb } from '../../index';
 
 describe('core schema', () => {
   let dbClient!: ReturnType<typeof createDb>;
