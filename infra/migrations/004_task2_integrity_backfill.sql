@@ -201,6 +201,107 @@ WHERE segment.capture_id IS NULL
 ALTER TABLE capture_segments
   ALTER COLUMN capture_id SET NOT NULL;
 
+DELETE FROM capture_segments
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM capture_parts
+  WHERE capture_parts.id = capture_segments.capture_part_id
+    AND capture_parts.capture_id = capture_segments.capture_id
+);
+
+UPDATE capture_events AS event
+SET capture_id = session.capture_id
+FROM capture_sessions AS session
+WHERE event.capture_session_id IS NOT NULL
+  AND event.capture_session_id = session.id
+  AND event.capture_id IS DISTINCT FROM session.capture_id;
+
+UPDATE capture_events
+SET capture_session_id = NULL
+WHERE capture_session_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM capture_sessions AS session
+    WHERE session.id = capture_events.capture_session_id
+      AND session.capture_id = capture_events.capture_id
+  );
+
+UPDATE attachments AS attachment
+SET capture_id = segment.capture_id
+FROM capture_segments AS segment
+WHERE attachment.segment_id IS NOT NULL
+  AND attachment.segment_id = segment.id
+  AND attachment.capture_id IS DISTINCT FROM segment.capture_id;
+
+UPDATE attachments
+SET segment_id = NULL
+WHERE segment_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM capture_segments AS segment
+    WHERE segment.id = attachments.segment_id
+      AND segment.capture_id = attachments.capture_id
+  );
+
+DELETE FROM candidate_entities
+WHERE segment_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM capture_segments AS segment
+    WHERE segment.id = candidate_entities.segment_id
+      AND segment.capture_id = candidate_entities.capture_id
+  );
+
+UPDATE candidate_entities AS candidate
+SET capture_id = segment.capture_id
+FROM capture_segments AS segment
+WHERE candidate.segment_id = segment.id
+  AND candidate.capture_id IS DISTINCT FROM segment.capture_id;
+
+DELETE FROM candidate_entities
+WHERE kind NOT IN ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule');
+
+UPDATE candidate_entities
+SET subtype = NULL
+WHERE subtype IS NOT NULL
+  AND NOT (
+    (kind = 'actor' and subtype in ('person', 'assistant', 'system', 'team', 'service'))
+    or (kind = 'context' and subtype in ('workspace', 'project', 'conversation', 'thread', 'document'))
+    or (kind = 'work_item' and subtype in ('task', 'bug', 'feature', 'decision', 'note'))
+    or (kind = 'event' and subtype in ('message', 'state_change', 'capture', 'observation', 'deadline'))
+    or (kind = 'resource' and subtype in ('document', 'webpage', 'link', 'file', 'snippet', 'artifact'))
+    or (kind = 'memory' and subtype in ('fact', 'preference', 'summary', 'pattern'))
+    or (kind = 'rule' and subtype in ('policy', 'constraint', 'workflow', 'guardrail'))
+  );
+
+UPDATE candidate_entities
+SET confidence = LEAST(GREATEST(confidence, 0), 1);
+
+UPDATE candidate_entities AS candidate
+SET promoted_entity_id = NULL,
+    promoted_entity_kind = NULL
+WHERE promoted_entity_id IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = candidate.promoted_entity_id
+      AND entity.kind = candidate.kind
+  );
+
+UPDATE candidate_entities
+SET promoted_entity_kind = kind
+WHERE promoted_entity_id IS NOT NULL
+  AND promoted_entity_kind IS DISTINCT FROM kind
+  AND EXISTS (
+    SELECT 1
+    FROM entities AS entity
+    WHERE entity.id = candidate_entities.promoted_entity_id
+      AND entity.kind = candidate_entities.kind
+  );
+
+DELETE FROM entity_relations
+WHERE kind NOT IN ('contains', 'references', 'derived_from', 'assigned_to', 'belongs_to', 'triggers', 'supports', 'duplicates', 'blocks', 'follows');
+
 ALTER TABLE capture_events DROP CONSTRAINT IF EXISTS capture_events_capture_session_id_fkey;
 ALTER TABLE attachments DROP CONSTRAINT IF EXISTS attachments_segment_id_fkey;
 ALTER TABLE candidate_entities DROP CONSTRAINT IF EXISTS candidate_entities_segment_id_fkey;
