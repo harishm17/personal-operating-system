@@ -412,6 +412,17 @@ END $$;
 DO $$
 BEGIN
   IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'capture_segments_capture_id_fkey'
+  ) THEN
+    ALTER TABLE capture_segments
+      ADD CONSTRAINT capture_segments_capture_id_fkey
+      FOREIGN KEY (capture_id) REFERENCES captures(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'attachments_segment_capture_id_fkey'
   ) THEN
     ALTER TABLE attachments
