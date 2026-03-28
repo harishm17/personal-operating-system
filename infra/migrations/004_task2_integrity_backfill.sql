@@ -38,6 +38,146 @@ END $$;
 ALTER TABLE entities
   ADD COLUMN IF NOT EXISTS source_capture_id uuid;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'actors' AND column_name = 'kind') THEN
+    ALTER TABLE actors ADD COLUMN kind text;
+  END IF;
+  UPDATE actors SET kind = 'actor' WHERE kind IS NULL;
+  ALTER TABLE actors ALTER COLUMN kind SET DEFAULT 'actor';
+  ALTER TABLE actors ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_kind_registry') THEN
+    ALTER TABLE actors ADD CONSTRAINT actors_kind_registry CHECK (kind = 'actor');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'actors_entity_kind_fk') THEN
+    ALTER TABLE actors
+      ADD CONSTRAINT actors_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contexts' AND column_name = 'kind') THEN
+    ALTER TABLE contexts ADD COLUMN kind text;
+  END IF;
+  UPDATE contexts SET kind = 'context' WHERE kind IS NULL;
+  ALTER TABLE contexts ALTER COLUMN kind SET DEFAULT 'context';
+  ALTER TABLE contexts ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_kind_registry') THEN
+    ALTER TABLE contexts ADD CONSTRAINT contexts_kind_registry CHECK (kind = 'context');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'contexts_entity_kind_fk') THEN
+    ALTER TABLE contexts
+      ADD CONSTRAINT contexts_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'work_items' AND column_name = 'kind') THEN
+    ALTER TABLE work_items ADD COLUMN kind text;
+  END IF;
+  UPDATE work_items SET kind = 'work_item' WHERE kind IS NULL;
+  ALTER TABLE work_items ALTER COLUMN kind SET DEFAULT 'work_item';
+  ALTER TABLE work_items ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_kind_registry') THEN
+    ALTER TABLE work_items ADD CONSTRAINT work_items_kind_registry CHECK (kind = 'work_item');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'work_items_entity_kind_fk') THEN
+    ALTER TABLE work_items
+      ADD CONSTRAINT work_items_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'events' AND column_name = 'kind') THEN
+    ALTER TABLE events ADD COLUMN kind text;
+  END IF;
+  UPDATE events SET kind = 'event' WHERE kind IS NULL;
+  ALTER TABLE events ALTER COLUMN kind SET DEFAULT 'event';
+  ALTER TABLE events ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_kind_registry') THEN
+    ALTER TABLE events ADD CONSTRAINT events_kind_registry CHECK (kind = 'event');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'events_entity_kind_fk') THEN
+    ALTER TABLE events
+      ADD CONSTRAINT events_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'resources' AND column_name = 'kind') THEN
+    ALTER TABLE resources ADD COLUMN kind text;
+  END IF;
+  UPDATE resources SET kind = 'resource' WHERE kind IS NULL;
+  ALTER TABLE resources ALTER COLUMN kind SET DEFAULT 'resource';
+  ALTER TABLE resources ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_kind_registry') THEN
+    ALTER TABLE resources ADD CONSTRAINT resources_kind_registry CHECK (kind = 'resource');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'resources_entity_kind_fk') THEN
+    ALTER TABLE resources
+      ADD CONSTRAINT resources_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'memory_items' AND column_name = 'kind') THEN
+    ALTER TABLE memory_items ADD COLUMN kind text;
+  END IF;
+  UPDATE memory_items SET kind = 'memory' WHERE kind IS NULL;
+  ALTER TABLE memory_items ALTER COLUMN kind SET DEFAULT 'memory';
+  ALTER TABLE memory_items ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_kind_registry') THEN
+    ALTER TABLE memory_items ADD CONSTRAINT memory_items_kind_registry CHECK (kind = 'memory');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_items_entity_kind_fk') THEN
+    ALTER TABLE memory_items
+      ADD CONSTRAINT memory_items_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'rules' AND column_name = 'kind') THEN
+    ALTER TABLE rules ADD COLUMN kind text;
+  END IF;
+  UPDATE rules SET kind = 'rule' WHERE kind IS NULL;
+  ALTER TABLE rules ALTER COLUMN kind SET DEFAULT 'rule';
+  ALTER TABLE rules ALTER COLUMN kind SET NOT NULL;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_kind_registry') THEN
+    ALTER TABLE rules ADD CONSTRAINT rules_kind_registry CHECK (kind = 'rule');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rules_entity_kind_fk') THEN
+    ALTER TABLE rules
+      ADD CONSTRAINT rules_entity_kind_fk FOREIGN KEY (entity_id, kind)
+      REFERENCES entities(id, kind) ON DELETE CASCADE;
+  END IF;
+END $$;
+
 ALTER TABLE capture_segments
   ADD COLUMN IF NOT EXISTS capture_id uuid;
 
@@ -164,25 +304,44 @@ BEGIN
   END IF;
 END $$;
 
-CREATE OR REPLACE FUNCTION candidate_entities_sync_promoted_entity_kind()
-returns trigger
-language plpgsql
-as $$
-begin
-  if new.promoted_entity_id is null then
-    new.promoted_entity_kind := null;
-  else
-    new.promoted_entity_kind := new.kind;
-  end if;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_kind_registry'
+  ) THEN
+    ALTER TABLE candidate_entities
+      ADD CONSTRAINT candidate_entities_kind_registry CHECK (
+        kind in ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule')
+      );
+  END IF;
 
-  return new;
-end;
-$$;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_subtype_registry'
+  ) THEN
+    ALTER TABLE candidate_entities
+      ADD CONSTRAINT candidate_entities_subtype_registry CHECK (
+        subtype is null
+        or (
+          (kind = 'actor' and subtype in ('person', 'assistant', 'system', 'team', 'service'))
+          or (kind = 'context' and subtype in ('workspace', 'project', 'conversation', 'thread', 'document'))
+          or (kind = 'work_item' and subtype in ('task', 'bug', 'feature', 'decision', 'note'))
+          or (kind = 'event' and subtype in ('message', 'state_change', 'capture', 'observation', 'deadline'))
+          or (kind = 'resource' and subtype in ('document', 'webpage', 'link', 'file', 'snippet', 'artifact'))
+          or (kind = 'memory' and subtype in ('fact', 'preference', 'summary', 'pattern'))
+          or (kind = 'rule' and subtype in ('policy', 'constraint', 'workflow', 'guardrail'))
+        )
+      );
+  END IF;
+END $$;
 
-DROP TRIGGER IF EXISTS candidate_entities_sync_promoted_entity_kind ON candidate_entities;
-
-CREATE TRIGGER candidate_entities_sync_promoted_entity_kind
-BEFORE INSERT OR UPDATE OF kind, promoted_entity_id
-ON candidate_entities
-FOR EACH ROW
-EXECUTE FUNCTION candidate_entities_sync_promoted_entity_kind();
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'entity_relations_kind_registry'
+  ) THEN
+    ALTER TABLE entity_relations
+      ADD CONSTRAINT entity_relations_kind_registry CHECK (
+        kind in ('contains', 'references', 'derived_from', 'assigned_to', 'belongs_to', 'triggers', 'supports', 'duplicates', 'blocks', 'follows')
+      );
+  END IF;
+END $$;
