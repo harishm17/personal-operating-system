@@ -82,6 +82,36 @@ describe('capture schema', () => {
     ).rejects.toThrow();
   });
 
+  it('rejects unsupported capture job names and inconsistent processed timestamps', async () => {
+    const captureId = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureId}, 'web', 'quick_capture', 'capture for constraints', ${randomUUID()})
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+        values (${randomUUID()}, ${captureId}, 'process_capture', ${`bad-job-name:${captureId}`})
+      `),
+    ).rejects.toThrow();
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key, status, processed_at)
+        values (${randomUUID()}, ${captureId}, 'process-capture', ${`pending-with-processed:${captureId}`}, 'pending', now())
+      `),
+    ).rejects.toThrow();
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
+        values (${randomUUID()}, ${captureId}, 'process-capture', ${`completed-without-processed:${captureId}`}, 'completed')
+      `),
+    ).rejects.toThrow();
+  });
+
   it('rejects invalid capture job statuses and cascades deletes from captures', async () => {
     const captureId = randomUUID();
     const cascadeJobId = randomUUID();
