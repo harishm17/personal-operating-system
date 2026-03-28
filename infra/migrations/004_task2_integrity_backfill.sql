@@ -38,6 +38,10 @@ END $$;
 ALTER TABLE entities
   ADD COLUMN IF NOT EXISTS source_capture_id uuid;
 
+ALTER TABLE candidate_entities
+  ADD COLUMN IF NOT EXISTS promoted_entity_id uuid;
+
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -188,5 +192,16 @@ BEGIN
           or (kind = 'rule' and subtype in ('policy', 'constraint', 'workflow', 'guardrail'))
         )
       );
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'candidate_entities_promoted_entity_id_fkey'
+  ) THEN
+    ALTER TABLE candidate_entities
+      ADD CONSTRAINT candidate_entities_promoted_entity_id_fkey
+      FOREIGN KEY (promoted_entity_id) REFERENCES entities(id) ON DELETE SET NULL;
   END IF;
 END $$;

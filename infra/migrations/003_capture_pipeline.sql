@@ -73,6 +73,7 @@ create table if not exists candidate_entities (
   id uuid primary key default gen_random_uuid(),
   capture_id uuid not null references captures(id) on delete cascade,
   segment_id uuid not null references capture_segments(id) on delete cascade,
+  promoted_entity_id uuid references entities(id) on delete set null,
   kind text not null,
   subtype text,
   title text not null,
@@ -97,6 +98,13 @@ create table if not exists candidate_entities (
   )
 );
 
-alter table entities
-  add constraint entities_source_capture_id_fkey
-  foreign key (source_capture_id) references captures(id) on delete set null;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey'
+  ) THEN
+    ALTER TABLE entities
+      ADD CONSTRAINT entities_source_capture_id_fkey
+      FOREIGN KEY (source_capture_id) REFERENCES captures(id) ON DELETE SET NULL;
+  END IF;
+END $$;

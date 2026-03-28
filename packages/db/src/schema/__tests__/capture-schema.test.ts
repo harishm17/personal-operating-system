@@ -14,6 +14,27 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(8);
   });
 
+  it('exposes a promoted entity link on candidates', async () => {
+    const columns = await db.execute(sql`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'candidate_entities'
+        and column_name = 'promoted_entity_id'
+    `);
+
+    const fk = await db.execute(sql`
+      select 1
+      from information_schema.table_constraints
+      where table_name = 'candidate_entities'
+        and constraint_name = 'candidate_entities_promoted_entity_id_fkey'
+        and constraint_type = 'FOREIGN KEY'
+    `);
+
+    expect(columns.rows).toHaveLength(1);
+    expect(fk.rows).toHaveLength(1);
+  });
+
   it('rejects invalid candidate kinds and subtype combinations', async () => {
     await db.execute(sql`
       insert into captures (id, channel, source_type, content_text, client_request_id)
