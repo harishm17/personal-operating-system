@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { db } from '../../client';
+import { createDb } from '../../client';
 
 describe('core schema', () => {
+  let dbClient!: ReturnType<typeof createDb>;
+
+  beforeAll(() => {
+    dbClient = createDb();
+  });
+
+  afterAll(async () => {
+    await dbClient.pool.end();
+  });
+
   it('creates root entity tables', async () => {
-    const result = await db.execute(sql`
+    const result = await dbClient.db.execute(sql`
       select table_name
       from information_schema.tables
       where table_schema = 'public'
@@ -16,52 +27,57 @@ describe('core schema', () => {
 
   it('rejects invalid entity kinds and subtype combinations', async () => {
     await expect(
-      db.execute(sql`
+      dbClient.db.execute(sql`
         insert into entities (id, kind, subtype, title)
-        values ('00000000-0000-0000-0000-000000000101', 'actor', 'deadline', 'invalid entity')
+        values (${randomUUID()}, 'actor', 'deadline', 'invalid entity')
       `),
     ).rejects.toThrow();
   });
 
   it('requires subtype rows to match the owning entity kind', async () => {
-    await db.execute(sql`
+    const entityId = randomUUID();
+
+    await dbClient.db.execute(sql`
       insert into entities (id, kind, title)
-      values ('00000000-0000-0000-0000-000000000102', 'actor', 'Ada')
+      values (${entityId}, 'actor', 'Ada')
     `);
 
-    await db.execute(sql`
+    await dbClient.db.execute(sql`
       insert into actors (entity_id, kind, title)
-      values ('00000000-0000-0000-0000-000000000102', 'actor', 'Ada')
+      values (${entityId}, 'actor', 'Ada')
     `);
 
     await expect(
-      db.execute(sql`
+      dbClient.db.execute(sql`
         insert into contexts (entity_id, kind, title)
-        values ('00000000-0000-0000-0000-000000000102', 'context', 'shared context')
+        values (${entityId}, 'context', 'shared context')
       `),
     ).rejects.toThrow();
   });
 
   it('rejects invalid relation kinds', async () => {
-    await db.execute(sql`
+    const fromEntityId = randomUUID();
+    const toEntityId = randomUUID();
+
+    await dbClient.db.execute(sql`
       insert into entities (id, kind, title)
-      values ('00000000-0000-0000-0000-000000000103', 'actor', 'Source')
+      values (${fromEntityId}, 'actor', 'Source')
     `);
-    await db.execute(sql`
+    await dbClient.db.execute(sql`
       insert into entities (id, kind, title)
-      values ('00000000-0000-0000-0000-000000000104', 'context', 'Target')
+      values (${toEntityId}, 'context', 'Target')
     `);
 
     await expect(
-      db.execute(sql`
+      dbClient.db.execute(sql`
         insert into entity_relations (id, from_entity_id, to_entity_id, kind)
-        values ('00000000-0000-0000-0000-000000000105', '00000000-0000-0000-0000-000000000103', '00000000-0000-0000-0000-000000000104', 'bogus')
+        values (${randomUUID()}, ${fromEntityId}, ${toEntityId}, 'bogus')
       `),
     ).rejects.toThrow();
   });
 
   it('creates a provenance foreign key from entities to captures', async () => {
-    const result = await db.execute(sql`
+    const result = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
       where table_name = 'entities'

@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
-import { db } from '../../client';
+import { createDb } from '../../client';
 
 describe('capture schema', () => {
+  let dbClient!: ReturnType<typeof createDb>;
+
+  beforeAll(() => {
+    dbClient = createDb();
+  });
+
+  afterAll(async () => {
+    await dbClient.pool.end();
+  });
+
   it('creates capture pipeline tables', async () => {
-    const result = await db.execute(sql`
+    const result = await dbClient.db.execute(sql`
       select table_name
       from information_schema.tables
       where table_schema = 'public'
@@ -14,54 +25,158 @@ describe('capture schema', () => {
     expect(result.rows).toHaveLength(8);
   });
 
-  it('exposes a promoted entity link on candidates', async () => {
-    const columns = await db.execute(sql`
+  it('exposes the promotion link and confidence guard on candidates', async () => {
+    const columns = await dbClient.db.execute(sql`
       select column_name
       from information_schema.columns
       where table_schema = 'public'
         and table_name = 'candidate_entities'
-        and column_name = 'promoted_entity_id'
+        and column_name in ('promoted_entity_id', 'promoted_entity_kind')
     `);
 
-    const fk = await db.execute(sql`
+    const fk = await dbClient.db.execute(sql`
       select 1
       from information_schema.table_constraints
       where table_name = 'candidate_entities'
-        and constraint_name = 'candidate_entities_promoted_entity_id_fkey'
+        and constraint_name = 'candidate_entities_promoted_entity_id_kind_fkey'
         and constraint_type = 'FOREIGN KEY'
     `);
 
-    expect(columns.rows).toHaveLength(1);
+    const confidenceCheck = await dbClient.db.execute(sql`
+      select 1
+      from information_schema.table_constraints
+      where table_name = 'candidate_entities'
+        and constraint_name = 'candidate_entities_confidence_range_check'
+        and constraint_type = 'CHECK'
+    `);
+
+    expect(columns.rows).toHaveLength(2);
     expect(fk.rows).toHaveLength(1);
+    expect(confidenceCheck.rows).toHaveLength(1);
   });
 
-  it('rejects invalid candidate kinds and subtype combinations', async () => {
-    await db.execute(sql`
+  it('rejects invalid candidate kinds, subtype combinations, and mismatched promotion links', async () => {
+    const captureId = randomUUID();
+    const partId = randomUUID();
+    const segmentId = randomUUID();
+    const resourceEntityId = randomUUID();
+    const eventEntityId = randomUUID();
+
+    await dbClient.db.execute(sql`
       insert into captures (id, channel, source_type, content_text, client_request_id)
-      values ('00000000-0000-0000-0000-000000000201', 'web', 'chat', 'hello world', 'req-201')
+      values (${captureId}, 'web', 'chat', 'hello world', ${randomUUID()})
     `);
 
-    await db.execute(sql`
+    await dbClient.db.execute(sql`
       insert into capture_parts (id, capture_id, part_index, kind, content_text)
-      values ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000201', 0, 'message', 'hello world')
+      values (${partId}, ${captureId}, 0, 'message', 'hello world')
     `);
 
-    await db.execute(sql`
-      insert into capture_segments (id, capture_part_id, segment_index, kind, content_text)
-      values ('00000000-0000-0000-0000-000000000203', '00000000-0000-0000-0000-000000000202', 0, 'sentence', 'hello world')
+    await dbClient.db.execute(sql`
+      insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
+      values (${segmentId}, ${partId}, ${captureId}, 0, 'sentence', 'hello world')
     `);
 
     await expect(
-      db.execute(sql`
+      dbClient.db.execute(sql`
         insert into candidate_entities (id, capture_id, segment_id, kind, subtype, title, confidence)
-        values ('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000203', 'relation', null, 'bad candidate', 0.5000)
+        values (${randomUUID()}, ${captureId}, ${segmentId}, 'relation', null, 'bad candidate', 0.5000)
       `),
     ).rejects.toThrow();
 
     await expect(
-      db.execute(sql`
+      dbClient.db.execute(sql`
         insert into candidate_entities (id, capture_id, segment_id, kind, subtype, title, confidence)
-        values ('00000000-0000-0000-0000-000000000205', '00000000-0000-0000-0000-000000000201', '00000000-0000-0000-0000-000000000203', 'resource', 'deadline', 'bad subtype', 0.5000)
+        values (${randomUUID()}, ${captureId}, ${segmentId}, 'resource', 'deadline', 'bad subtype', 0.5000)
+      `),
+    ).rejects.toThrow();
+
+    await dbClient.db.execute(sql`
+      insert into entities (id, kind, title)
+      values (${resourceEntityId}, 'resource', 'resource target')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into entities (id, kind, title)
+      values (${eventEntityId}, 'event', 'event target')
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into candidate_entities (
+          id,
+          capture_id,
+          segment_id,
+          kind,
+          promoted_entity_id,
+          promoted_entity_kind,
+          subtype,
+          title,
+          confidence
+        )
+        values (
+          ${randomUUID()},
+          ${captureId},
+          ${segmentId},
+          'resource',
+          ${eventEntityId},
+          'resource',
+          'webpage',
+          'bad promotion link',
+          0.7500
+        )
+      `),
+    ).rejects.toThrow();
+  });
+
+  it('rejects cross-capture references for capture events, attachments, and candidates', async () => {
+    const captureA = randomUUID();
+    const captureB = randomUUID();
+    const sessionA = randomUUID();
+    const sessionB = randomUUID();
+    const partA = randomUUID();
+    const partB = randomUUID();
+    const segmentA = randomUUID();
+    const segmentB = randomUUID();
+
+    await dbClient.db.execute(sql`
+      insert into captures (id, channel, source_type, content_text, client_request_id)
+      values (${captureA}, 'web', 'chat', 'capture a', ${randomUUID()}), (${captureB}, 'web', 'chat', 'capture b', ${randomUUID()})
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_sessions (id, capture_id, session_key)
+      values (${sessionA}, ${captureA}, 'session-a'), (${sessionB}, ${captureB}, 'session-b')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_parts (id, capture_id, part_index, kind, content_text)
+      values (${partA}, ${captureA}, 0, 'message', 'part a'), (${partB}, ${captureB}, 0, 'message', 'part b')
+    `);
+
+    await dbClient.db.execute(sql`
+      insert into capture_segments (id, capture_part_id, capture_id, segment_index, kind, content_text)
+      values (${segmentA}, ${partA}, ${captureA}, 0, 'sentence', 'segment a'), (${segmentB}, ${partB}, ${captureB}, 0, 'sentence', 'segment b')
+    `);
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_events (id, capture_id, capture_session_id, kind)
+        values (${randomUUID()}, ${captureA}, ${sessionB}, 'mismatch')
+      `),
+    ).rejects.toThrow();
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into attachments (id, capture_id, segment_id, file_name, storage_key)
+        values (${randomUUID()}, ${captureA}, ${segmentB}, 'file.txt', 'storage-key')
+      `),
+    ).rejects.toThrow();
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into candidate_entities (id, capture_id, segment_id, kind, title, confidence)
+        values (${randomUUID()}, ${captureA}, ${segmentB}, 'resource', 'cross capture candidate', 0.7500)
       `),
     ).rejects.toThrow();
   });

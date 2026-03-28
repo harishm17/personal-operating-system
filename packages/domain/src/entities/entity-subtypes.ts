@@ -14,4 +14,11 @@ export type EntitySubtypeByKind = {
   [K in EntityKind]: (typeof ENTITY_SUBTYPES)[K][number];
 };
 
+export type EntitySubtypeForKind<K extends EntityKind> = EntitySubtypeByKind[K];
+
+export type EntityKindSubtype<K extends EntityKind = EntityKind> = {
+  kind: K;
+  subtype: EntitySubtypeForKind<K> | null;
+};
+
 export type EntitySubtype = EntitySubtypeByKind[EntityKind];

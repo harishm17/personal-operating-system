@@ -1,6 +1,6 @@
 import { jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { EntityKind, EntitySubtype } from '@assistant/domain';
+import type { EntityKind, EntitySubtypeForKind } from '@assistant/domain';
 import { captures } from './captures';
 
 export const entities = pgTable(
@@ -8,7 +8,7 @@ export const entities = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     kind: text('kind').$type<EntityKind>().notNull(),
-    subtype: text('subtype').$type<EntitySubtype | null>(),
+    subtype: text('subtype').$type<EntitySubtypeForKind<EntityKind> | null>(),
     title: text('title'),
     state: text('state').notNull().default('active'),
     sourceCaptureId: uuid('source_capture_id').references(() => captures.id, {
