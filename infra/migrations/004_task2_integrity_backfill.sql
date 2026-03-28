@@ -345,3 +345,26 @@ BEGIN
       );
   END IF;
 END $$;
+
+CREATE OR REPLACE FUNCTION candidate_entities_sync_promoted_entity_kind()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.promoted_entity_id is null then
+    new.promoted_entity_kind := null;
+  else
+    new.promoted_entity_kind := new.kind;
+  end if;
+
+  return new;
+end;
+$$;
+
+DROP TRIGGER IF EXISTS candidate_entities_sync_promoted_entity_kind ON candidate_entities;
+
+CREATE TRIGGER candidate_entities_sync_promoted_entity_kind
+BEFORE INSERT OR UPDATE OF kind, promoted_entity_id
+ON candidate_entities
+FOR EACH ROW
+EXECUTE FUNCTION candidate_entities_sync_promoted_entity_kind();
