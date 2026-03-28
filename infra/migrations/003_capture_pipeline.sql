@@ -79,5 +79,24 @@ create table if not exists candidate_entities (
   confidence numeric(5,4) not null,
   evidence jsonb not null default '{}'::jsonb,
   status text not null default 'suggested',
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint candidate_entities_kind_registry check (
+    kind in ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule')
+  ),
+  constraint candidate_entities_subtype_registry check (
+    subtype is null
+    or (
+      (kind = 'actor' and subtype in ('person', 'assistant', 'system', 'team', 'service'))
+      or (kind = 'context' and subtype in ('workspace', 'project', 'conversation', 'thread', 'document'))
+      or (kind = 'work_item' and subtype in ('task', 'bug', 'feature', 'decision', 'note'))
+      or (kind = 'event' and subtype in ('message', 'state_change', 'capture', 'observation', 'deadline'))
+      or (kind = 'resource' and subtype in ('document', 'webpage', 'link', 'file', 'snippet', 'artifact'))
+      or (kind = 'memory' and subtype in ('fact', 'preference', 'summary', 'pattern'))
+      or (kind = 'rule' and subtype in ('policy', 'constraint', 'workflow', 'guardrail'))
+    )
+  )
 );
+
+alter table entities
+  add constraint entities_source_capture_id_fkey
+  foreign key (source_capture_id) references captures(id) on delete set null;

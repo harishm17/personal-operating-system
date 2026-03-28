@@ -1,5 +1,6 @@
 import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import type { RelationKind } from '@assistant/domain';
 import { entities } from './entities';
 
 export const entityRelations = pgTable('entity_relations', {
@@ -10,7 +11,7 @@ export const entityRelations = pgTable('entity_relations', {
   toEntityId: uuid('to_entity_id')
     .notNull()
     .references(() => entities.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(),
+  kind: text('kind').$type<RelationKind>().notNull(),
   metadata: jsonb('metadata').notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
