@@ -2,6 +2,7 @@ export * from './actors';
 export * from './attachments';
 export * from './candidate-entities';
 export * from './capture-events';
+export * from './capture-jobs';
 export * from './capture-parts';
 export * from './capture-segments';
 export * from './capture-sessions';
@@ -21,6 +22,7 @@ import { actors } from './actors';
 import { attachments } from './attachments';
 import { candidateEntities } from './candidate-entities';
 import { captureEvents } from './capture-events';
+import { captureJobs } from './capture-jobs';
 import { captureParts } from './capture-parts';
 import { captureSegments } from './capture-segments';
 import { captureSessions } from './capture-sessions';
@@ -41,6 +43,7 @@ export const dbSchema = {
   attachments,
   candidateEntities,
   captureEvents,
+  captureJobs,
   captureParts,
   captureSegments,
   captureSessions,

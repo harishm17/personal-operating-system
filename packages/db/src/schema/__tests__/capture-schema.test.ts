@@ -17,6 +17,7 @@ describe('capture schema', () => {
       '002_core_entities.sql',
       '003_capture_pipeline.sql',
       '004_task2_integrity_backfill.sql',
+      '005_capture_jobs.sql',
     ]));
   });
 
@@ -33,6 +34,17 @@ describe('capture schema', () => {
     `);
 
     expect(result.rows).toHaveLength(8);
+  });
+
+  it('includes capture_jobs for durable process-capture enqueues', async () => {
+    const result = await dbClient.db.execute(sql`
+      select 1
+      from information_schema.tables
+      where table_schema = current_schema()
+        and table_name = 'capture_jobs'
+    `);
+
+    expect(result.rows).toHaveLength(1);
   });
 
   it('exposes the promotion link and confidence guard on candidates and attachments', async () => {
