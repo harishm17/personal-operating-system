@@ -130,11 +130,22 @@ $$;
 
 drop trigger if exists candidate_entities_sync_promoted_entity_kind on candidate_entities;
 
-create trigger candidate_entities_sync_promoted_entity_kind
-before insert or update of kind, promoted_entity_id
-on candidate_entities
-for each row
-execute function candidate_entities_sync_promoted_entity_kind();
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'candidate_entities'
+      AND column_name IN ('promoted_entity_id', 'promoted_entity_kind')
+    GROUP BY table_name
+    HAVING count(*) = 2
+  ) THEN
+    CREATE TRIGGER candidate_entities_sync_promoted_entity_kind
+    BEFORE INSERT OR UPDATE OF kind, promoted_entity_id
+    ON candidate_entities
+    FOR EACH ROW
+    EXECUTE FUNCTION candidate_entities_sync_promoted_entity_kind();
+  END IF;
+END $$;
 
 DO $$
 BEGIN
