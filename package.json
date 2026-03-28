@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "turbo run dev --filter=@assistant/api --filter=@assistant/worker --parallel",
     "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
     "db:migrate": "for file in infra/migrations/*.sql; do psql \"$DATABASE_URL\" -f \"$file\"; done"
   },
   "devDependencies": {
