@@ -1,3 +1,69 @@
+ALTER TABLE entities
+  ADD COLUMN IF NOT EXISTS source_capture_id uuid;
+
+DO $$
+BEGIN
+  WITH inferred AS (
+    SELECT DISTINCT ON (entity_id) entity_id, kind
+    FROM (
+      SELECT entity_id, 'actor'::text AS kind, 1 AS priority FROM actors
+      UNION ALL
+      SELECT entity_id, 'context'::text AS kind, 2 AS priority FROM contexts
+      UNION ALL
+      SELECT entity_id, 'work_item'::text AS kind, 3 AS priority FROM work_items
+      UNION ALL
+      SELECT entity_id, 'event'::text AS kind, 4 AS priority FROM events
+      UNION ALL
+      SELECT entity_id, 'resource'::text AS kind, 5 AS priority FROM resources
+      UNION ALL
+      SELECT entity_id, 'memory'::text AS kind, 6 AS priority FROM memory_items
+      UNION ALL
+      SELECT entity_id, 'rule'::text AS kind, 7 AS priority FROM rules
+    ) AS candidates
+    ORDER BY entity_id, priority
+  )
+  UPDATE entities AS entity
+  SET kind = inferred.kind
+  FROM inferred
+  WHERE entity.id = inferred.entity_id;
+
+  UPDATE entities
+  SET kind = CASE
+    WHEN subtype IN ('person', 'assistant', 'system', 'team', 'service') THEN 'actor'
+    WHEN subtype IN ('workspace', 'project', 'conversation', 'thread', 'document') THEN 'context'
+    WHEN subtype IN ('task', 'bug', 'feature', 'decision', 'note') THEN 'work_item'
+    WHEN subtype IN ('message', 'state_change', 'capture', 'observation', 'deadline') THEN 'event'
+    WHEN subtype IN ('document', 'webpage', 'link', 'file', 'snippet', 'artifact') THEN 'resource'
+    WHEN subtype IN ('fact', 'preference', 'summary', 'pattern') THEN 'memory'
+    WHEN subtype IN ('policy', 'constraint', 'workflow', 'guardrail') THEN 'rule'
+    ELSE 'resource'
+  END
+  WHERE kind IS NULL
+    OR kind NOT IN ('actor', 'context', 'work_item', 'event', 'resource', 'memory', 'rule');
+
+  UPDATE entities
+  SET subtype = NULL
+  WHERE subtype IS NOT NULL
+    AND NOT (
+      (kind = 'actor' and subtype in ('person', 'assistant', 'system', 'team', 'service'))
+      or (kind = 'context' and subtype in ('workspace', 'project', 'conversation', 'thread', 'document'))
+      or (kind = 'work_item' and subtype in ('task', 'bug', 'feature', 'decision', 'note'))
+      or (kind = 'event' and subtype in ('message', 'state_change', 'capture', 'observation', 'deadline'))
+      or (kind = 'resource' and subtype in ('document', 'webpage', 'link', 'file', 'snippet', 'artifact'))
+      or (kind = 'memory' and subtype in ('fact', 'preference', 'summary', 'pattern'))
+      or (kind = 'rule' and subtype in ('policy', 'constraint', 'workflow', 'guardrail'))
+    );
+
+  UPDATE entities
+  SET source_capture_id = NULL
+  WHERE source_capture_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM captures
+      WHERE captures.id = entities.source_capture_id
+    );
+END $$;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -33,10 +99,15 @@ BEGIN
         )
       );
   END IF;
-END $$;
 
-ALTER TABLE entities
-  ADD COLUMN IF NOT EXISTS source_capture_id uuid;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey'
+  ) THEN
+    ALTER TABLE entities
+      ADD CONSTRAINT entities_source_capture_id_fkey
+      FOREIGN KEY (source_capture_id) REFERENCES captures(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -315,17 +386,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS capture_parts_id_capture_id_unique
 
 CREATE UNIQUE INDEX IF NOT EXISTS capture_segments_id_capture_id_unique
   ON capture_segments (id, capture_id);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'entities_source_capture_id_fkey'
-  ) THEN
-    ALTER TABLE entities
-      ADD CONSTRAINT entities_source_capture_id_fkey
-      FOREIGN KEY (source_capture_id) REFERENCES captures(id) ON DELETE SET NULL;
-  END IF;
-END $$;
 
 DO $$
 BEGIN
