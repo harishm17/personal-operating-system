@@ -108,6 +108,18 @@ describe('capture schema', () => {
         constraint: 'capture_jobs_dedupe_key_key',
       },
     });
+
+    await expect(
+      dbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+        values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}:second-attempt`})
+      `),
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23505',
+        constraint: 'capture_jobs_capture_id_job_name_key',
+      },
+    });
   });
 
   it('rejects unsupported capture job names and inconsistent processed timestamps', async () => {
@@ -123,38 +135,56 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key)
         values (${randomUUID()}, ${captureId}, 'process_capture', ${`bad-job-name:${captureId}`})
       `),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23514',
+        constraint: 'capture_jobs_job_name_check',
+      },
+    });
 
     await expect(
       dbClient.db.execute(sql`
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status, processed_at)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`pending-with-processed:${captureId}`}, 'pending', now())
       `),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23514',
+        constraint: 'capture_jobs_processed_at_consistency_check',
+      },
+    });
 
     await expect(
       dbClient.db.execute(sql`
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`completed-without-processed:${captureId}`}, 'completed')
       `),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23514',
+        constraint: 'capture_jobs_processed_at_consistency_check',
+      },
+    });
   });
 
   it('accepts terminal capture job statuses when processed_at is set', async () => {
-    const captureId = randomUUID();
+    const completedCaptureId = randomUUID();
+    const failedCaptureId = randomUUID();
     const completedJobId = randomUUID();
     const failedJobId = randomUUID();
 
     await dbClient.db.execute(sql`
       insert into captures (id, channel, source_type, content_text, client_request_id)
-      values (${captureId}, 'web', 'quick_capture', 'capture for terminal statuses', ${randomUUID()})
+      values
+        (${completedCaptureId}, 'web', 'quick_capture', 'completed capture for terminal statuses', ${randomUUID()}),
+        (${failedCaptureId}, 'web', 'quick_capture', 'failed capture for terminal statuses', ${randomUUID()})
     `);
 
     await dbClient.db.execute(sql`
       insert into capture_jobs (id, capture_id, job_name, dedupe_key, status, processed_at)
       values
-        (${completedJobId}, ${captureId}, 'process-capture', ${`completed:${captureId}`}, 'completed', now()),
-        (${failedJobId}, ${captureId}, 'process-capture', ${`failed:${captureId}`}, 'failed', now())
+        (${completedJobId}, ${completedCaptureId}, 'process-capture', ${`completed:${completedCaptureId}`}, 'completed', now()),
+        (${failedJobId}, ${failedCaptureId}, 'process-capture', ${`failed:${failedCaptureId}`}, 'failed', now())
     `);
 
     const inserted = await dbClient.db.execute(sql`
@@ -186,7 +216,12 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`bad-status:${captureId}`}, 'pendng')
       `),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject<PostgresError>({
+      cause: {
+        code: '23514',
+        constraint: 'capture_jobs_status_check',
+      },
+    });
 
     await dbClient.db.execute(sql`
       insert into capture_jobs (id, capture_id, job_name, dedupe_key)

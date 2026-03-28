@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { check, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { captures } from './captures';
 
 export type CaptureJobName = 'process-capture';
@@ -17,7 +17,7 @@ export const captureJobs = pgTable('capture_jobs', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
   processedAt: timestamp('processed_at', { withTimezone: true }),
-}, () => ({
+}, (table) => ({
   jobNameCheck: check(
     'capture_jobs_job_name_check',
     sql`job_name in ('process-capture')`,
@@ -28,6 +28,7 @@ export const captureJobs = pgTable('capture_jobs', {
   ),
   processedAtConsistencyCheck: check(
     'capture_jobs_processed_at_consistency_check',
-    sql`((status in ('completed', 'failed')) and processed_at is not null) or ((status in ('pending', 'processing')) and processed_at is null)`,
+    sql`(status not in ('pending', 'processing', 'completed', 'failed')) or (((status in ('completed', 'failed')) and processed_at is not null) or ((status in ('pending', 'processing')) and processed_at is null))`,
   ),
+  captureIdJobNameUnique: unique('capture_jobs_capture_id_job_name_key').on(table.captureId, table.jobName),
 }));
