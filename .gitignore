@@ -6,3 +6,7 @@ dist/
 coverage/
 pnpm-debug.log*
 .vite/
+.next/
+.env
+.env.*
+!.env.example
