@@ -9,6 +9,7 @@ import { createDb } from '@assistant/db';
 import { AppModule } from '../src/app.module';
 import { CaptureReadService } from '../src/modules/capture/capture-read.service';
 import { CAPTURE_REPOSITORY, DB_CONNECTION } from '../src/modules/db/db.constants';
+import { JobsService } from '../src/modules/jobs/jobs.service';
 import type { CaptureRepository, DbConnection } from '../src/modules/db/db.types';
 
 const CAPTURE_API_MIGRATIONS = [
@@ -67,6 +68,9 @@ async function deleteCaptureSideEffects(dbClient: DbConnection, captureId: strin
   await dbClient.pool.query('delete from inbox_items where capture_id = $1', [captureId]);
 }
 
+async function deleteCaptureJobsByCaptureId(dbClient: DbConnection, captureId: string) {
+  await dbClient.pool.query('delete from capture_jobs where capture_id = $1', [captureId]);
+}
 
 async function countCapturesByClientRequestId(dbClient: DbConnection, clientRequestId: string) {
   const result = await dbClient.pool.query<{ count: string }>(
@@ -301,6 +305,7 @@ describe('Capture API', () => {
       expect(await captureRepository.listInboxItemsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureSessionsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureEventsByCaptureId(captureId)).toHaveLength(1);
+      expect(await countCaptureJobsByCaptureId(dbConnection, captureId)).toBe(1);
     });
   });
 
@@ -320,7 +325,9 @@ describe('Capture API', () => {
       expect(firstResponse.status).toBe(201);
 
       const captureId = firstResponse.body.capture.id as string;
+      await deleteCaptureJobsByCaptureId(dbConnection, captureId);
       await deleteCaptureSideEffects(dbConnection, captureId);
+      expect(await countCaptureJobsByCaptureId(dbConnection, captureId)).toBe(0);
 
       const replayResponse = await request(app.getHttpServer()).post('/captures').send(payload);
 
@@ -329,6 +336,38 @@ describe('Capture API', () => {
       expect(await captureRepository.listInboxItemsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureSessionsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureEventsByCaptureId(captureId)).toHaveLength(1);
+      expect(await countCaptureJobsByCaptureId(dbConnection, captureId)).toBe(1);
+    });
+  });
+
+  it('JobsService.publish returns the existing process-capture job when the legacy dedupe key differs', async () => {
+    await withTestApp(async (app) => {
+      const dbConnection = app.get<DbConnection>(DB_CONNECTION);
+      const jobsService = app.get(JobsService);
+      const payload = {
+        channel: 'web',
+        sourceType: 'quick_capture',
+        contentText: 'Legacy job rows should still be loadable',
+        clientRequestId: 'cap_legacy_job_1',
+      };
+
+      const response = await request(app.getHttpServer()).post('/captures').send(payload);
+      expect(response.status).toBe(201);
+
+      const captureId = response.body.capture.id as string;
+      const existingJobs = await listCaptureJobsByCaptureId(dbConnection, captureId);
+      expect(existingJobs).toHaveLength(1);
+
+      await dbConnection.pool.query(
+        `update capture_jobs
+         set dedupe_key = $2
+         where capture_id = $1 and job_name = 'process-capture'`,
+        [captureId, `legacy-process-capture:${captureId}`],
+      );
+
+      const publishedJob = await jobsService.publish('process-capture', { captureId });
+
+      expect(publishedJob.id).toBe(existingJobs[0]?.id);
       expect(await countCaptureJobsByCaptureId(dbConnection, captureId)).toBe(1);
     });
   });

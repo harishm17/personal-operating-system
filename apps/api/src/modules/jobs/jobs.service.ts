@@ -37,9 +37,9 @@ export class JobsService {
       return this.mapJob(insertedJob);
     }
 
-    const existingJob = await this.loadCaptureJobByDedupeKey(dedupeKey);
+    const existingJob = await this.loadCaptureJob(captureId, name);
     if (!existingJob) {
-      throw new Error(`Expected capture job for dedupe key ${dedupeKey}`);
+      throw new Error(`Expected capture job for capture ${captureId} and job ${name}`);
     }
 
     return this.mapJob(existingJob);
@@ -73,7 +73,7 @@ export class JobsService {
     const result = await this.connection.pool.query<CaptureJobRow>(
       `insert into capture_jobs (capture_id, job_name, dedupe_key, payload_json)
        values ($1, $2, $3, $4::jsonb)
-       on conflict (dedupe_key) do nothing
+       on conflict do nothing
        returning
          id,
          capture_id,
@@ -90,7 +90,7 @@ export class JobsService {
     return result.rows[0];
   }
 
-  private async loadCaptureJobByDedupeKey(dedupeKey: string) {
+  private async loadCaptureJob(captureId: string, jobName: string) {
     const result = await this.connection.pool.query<CaptureJobRow>(
       `select
          id,
@@ -103,10 +103,11 @@ export class JobsService {
          available_at,
          processed_at
        from capture_jobs
-       where dedupe_key = $1
+       where capture_id = $1
+         and job_name = $2
        order by created_at asc, id asc
        limit 1`,
-      [dedupeKey],
+      [captureId, jobName],
     );
 
     return result.rows[0];
