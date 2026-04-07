@@ -6,7 +6,8 @@
     "dev": "turbo run dev --filter=@assistant/api --filter=@assistant/worker --parallel",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "db:migrate": "for file in infra/migrations/*.sql; do psql \"$DATABASE_URL\" -f \"$file\"; done"
+    "db:migrate": "for file in infra/migrations/*.sql; do psql \"$DATABASE_URL\" -f \"$file\"; done",
+    "verify:capture": "pnpm --filter @assistant/db test:capture:schema && pnpm --filter @assistant/api test:capture:e2e"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

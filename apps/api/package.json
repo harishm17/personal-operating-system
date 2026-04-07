@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/main.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:capture:e2e": "/home/harish/.local/node-v22.14.0-linux-x64/bin/node ./node_modules/vitest/vitest.mjs run test/capture.e2e-spec.ts"
   },
   "dependencies": {
     "@assistant/db": "workspace:*",
