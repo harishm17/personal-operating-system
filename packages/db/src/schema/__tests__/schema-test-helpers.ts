@@ -2,7 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createDb } from '../../index';
 
-export async function setupTask2SchemaDb(migrations: string[]) {
+type SetupTask2SchemaDbOptions = {
+  migrationSqlOverrides?: Partial<Record<string, string>>;
+};
+
+export async function setupTask2SchemaDb(
+  migrations: string[],
+  options: SetupTask2SchemaDbOptions = {},
+) {
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) {
     throw new Error('DATABASE_URL is required');
@@ -19,10 +26,9 @@ export async function setupTask2SchemaDb(migrations: string[]) {
 
   const dbClient = createDb(schemaUrl.toString());
   for (const migrationName of migrations) {
-    const migrationSql = readFileSync(
-      new URL(`../../../../../infra/migrations/${migrationName}`, import.meta.url),
-      'utf8',
-    );
+    const migrationSql =
+      options.migrationSqlOverrides?.[migrationName] ??
+      readFileSync(new URL(`../../../../../infra/migrations/${migrationName}`, import.meta.url), 'utf8');
 
     await dbClient.pool.query(migrationSql);
   }
