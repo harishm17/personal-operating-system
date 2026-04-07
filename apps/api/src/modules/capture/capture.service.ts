@@ -70,12 +70,7 @@ export class CaptureService {
       );
     }
 
-    const existingJob = this.jobsService
-      .getPublishedJobs()
-      .find((job) => job.name === 'process-capture' && job.payload.captureId === capture.id);
-    if (!existingJob) {
-      await this.jobsService.publish('process-capture', { captureId: capture.id });
-    }
+    await this.jobsService.publish('process-capture', { captureId: capture.id });
 
     return { capture, inboxItem };
   }

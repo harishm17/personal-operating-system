@@ -10,7 +10,6 @@ import { AppModule } from '../src/app.module';
 import { CaptureReadService } from '../src/modules/capture/capture-read.service';
 import { CAPTURE_REPOSITORY, DB_CONNECTION } from '../src/modules/db/db.constants';
 import type { CaptureRepository, DbConnection } from '../src/modules/db/db.types';
-import { JobsService } from '../src/modules/jobs/jobs.service';
 
 const CAPTURE_API_MIGRATIONS = [
   '001_bootstrap.sql',
@@ -78,6 +77,29 @@ async function countCapturesByClientRequestId(dbClient: DbConnection, clientRequ
   return Number(result.rows[0]?.count ?? 0);
 }
 
+async function countCaptureJobsByCaptureId(dbClient: DbConnection, captureId: string) {
+  const result = await dbClient.pool.query<{ count: string }>(
+    'select count(*) as count from capture_jobs where capture_id = $1',
+    [captureId],
+  );
+
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+async function listCaptureJobsByCaptureId(dbClient: DbConnection, captureId: string) {
+  const result = await dbClient.pool.query<{
+    id: string;
+    capture_id: string;
+    job_name: string;
+    dedupe_key: string;
+  }>(
+    'select id, capture_id, job_name, dedupe_key from capture_jobs where capture_id = $1 order by created_at asc',
+    [captureId],
+  );
+
+  return result.rows;
+}
+
 async function createTestApp() {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -137,7 +159,7 @@ describe('Capture API', () => {
     await withTestApp(async (app) => {
       const captureReadService = app.get(CaptureReadService);
       const captureRepository = app.get<CaptureRepository>(CAPTURE_REPOSITORY);
-      const jobsService = app.get(JobsService);
+      const dbConnection = app.get<DbConnection>(DB_CONNECTION);
       const response = await request(app.getHttpServer()).post('/captures').send({
         channel: 'chat',
         sourceType: 'chat_message',
@@ -150,14 +172,14 @@ describe('Capture API', () => {
       const captureId = response.body.capture.id as string;
       const sessions = await captureReadService.listCaptureSessions(captureId);
       const events = await captureRepository.listCaptureEventsByCaptureId(captureId);
-      const jobs = jobsService.getPublishedJobs().filter((job) => job.payload.captureId === captureId);
+      const jobs = await listCaptureJobsByCaptureId(dbConnection, captureId);
 
       expect(sessions).toHaveLength(1);
       expect(events).toHaveLength(1);
       expect(events[0]?.captureSessionId).toBe(sessions[0]?.id);
       expect(events[0]?.kind).toBe('capture_received');
       expect(jobs).toHaveLength(1);
-      expect(jobs[0]?.name).toBe('process-capture');
+      expect(jobs[0]?.job_name).toBe('process-capture');
     });
   });
 
@@ -177,7 +199,6 @@ describe('Capture API', () => {
   it('POST /captures returns the existing capture on clientRequestId replay without duplicating side effects', async () => {
     await withTestApp(async (app) => {
       const captureRepository = app.get<CaptureRepository>(CAPTURE_REPOSITORY);
-      const jobsService = app.get(JobsService);
       const payload = {
         channel: 'web',
         sourceType: 'quick_capture',
@@ -196,9 +217,7 @@ describe('Capture API', () => {
       expect(await captureRepository.listCaptureSessionsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureEventsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listInboxItemsByCaptureId(captureId)).toHaveLength(1);
-      expect(
-        jobsService.getPublishedJobs().filter((job) => job.payload.captureId === captureId),
-      ).toHaveLength(1);
+      expect(await countCaptureJobsByCaptureId(app.get<DbConnection>(DB_CONNECTION), captureId)).toBe(1);
     });
   });
 
@@ -221,6 +240,35 @@ describe('Capture API', () => {
     expect(firstResponse.status).toBe(201);
     expect(secondResponse.status).toBe(201);
     expect(secondResponse.body.capture.id).toBe(firstResponse.body.capture.id);
+  });
+
+
+  it('POST /captures keeps process-capture jobs durable across app restarts and deduped on replay', async () => {
+    const payload = {
+      channel: 'web',
+      sourceType: 'quick_capture',
+      contentText: 'Persist job publication across app restarts',
+      clientRequestId: 'cap_job_restart_1',
+    };
+
+    const firstApp = await createTestApp();
+    const firstResponse = await request(firstApp.getHttpServer()).post('/captures').send(payload);
+    await firstApp.close();
+
+    const captureId = firstResponse.body.capture.id as string;
+
+    const secondApp = await createTestApp();
+    const secondResponse = await request(secondApp.getHttpServer()).post('/captures').send(payload);
+    await secondApp.close();
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(secondResponse.body.capture.id).toBe(captureId);
+
+    const jobs = await listCaptureJobsByCaptureId(dbClient, captureId);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.job_name).toBe('process-capture');
+    expect(jobs[0]?.dedupe_key).toBe(`process-capture:${captureId}`);
   });
 
 
@@ -260,9 +308,6 @@ describe('Capture API', () => {
     await withTestApp(async (app) => {
       const captureRepository = app.get<CaptureRepository>(CAPTURE_REPOSITORY);
       const dbConnection = app.get<DbConnection>(DB_CONNECTION);
-      const jobsService = app.get(JobsService) as JobsService & {
-        publishedJobs: Array<{ payload: { captureId?: string } }>;
-      };
       const payload = {
         channel: 'chat',
         sourceType: 'chat_message',
@@ -276,11 +321,6 @@ describe('Capture API', () => {
 
       const captureId = firstResponse.body.capture.id as string;
       await deleteCaptureSideEffects(dbConnection, captureId);
-      jobsService.publishedJobs.splice(
-        0,
-        jobsService.publishedJobs.length,
-        ...jobsService.publishedJobs.filter((job) => job.payload.captureId !== captureId),
-      );
 
       const replayResponse = await request(app.getHttpServer()).post('/captures').send(payload);
 
@@ -289,9 +329,7 @@ describe('Capture API', () => {
       expect(await captureRepository.listInboxItemsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureSessionsByCaptureId(captureId)).toHaveLength(1);
       expect(await captureRepository.listCaptureEventsByCaptureId(captureId)).toHaveLength(1);
-      expect(
-        jobsService.getPublishedJobs().filter((job) => job.payload.captureId === captureId),
-      ).toHaveLength(1);
+      expect(await countCaptureJobsByCaptureId(dbConnection, captureId)).toBe(1);
     });
   });
 
