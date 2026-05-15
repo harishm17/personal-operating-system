@@ -5,8 +5,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "test": "node -e \"if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required for @assistant/db tests'); process.exit(1); }\" && vitest run",
-    "test:capture:schema": "node -e \"if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required for @assistant/db tests'); process.exit(1); }\" && /home/harish/.local/node-v22.14.0-linux-x64/bin/node ./node_modules/vitest/vitest.mjs run src/schema/__tests__/capture-schema.test.ts"
+    "test": "bash scripts/run-vitest.sh",
+    "test:capture:schema": "bash scripts/run-vitest.sh src/schema/__tests__/capture-schema.test.ts src/schema/__tests__/capture-forward-migration.test.ts",
+    "typecheck": "NODE_BIN=\"$(which -a node | grep -v node_modules | head -n 1)\" && \"$NODE_BIN\" ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@assistant/domain": "workspace:*",

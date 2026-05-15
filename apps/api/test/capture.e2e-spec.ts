@@ -20,6 +20,7 @@ const CAPTURE_API_MIGRATIONS = [
   '004_task2_integrity_backfill.sql',
   '005_capture_jobs.sql',
   '006_capture_idempotency_uniques.sql',
+  '007_capture_job_guardrails.sql',
 ];
 
 const baseDatabaseUrl = process.env.DATABASE_URL;

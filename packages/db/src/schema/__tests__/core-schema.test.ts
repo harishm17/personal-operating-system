@@ -9,7 +9,7 @@ if (!process.env.DATABASE_URL) {
 
 describe('core schema', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
-  let cleanup = async () => undefined;
+  let cleanup: () => Promise<void> = async () => undefined;
 
   beforeAll(async () => {
     ({ dbClient, cleanup } = await setupTask2SchemaDb([

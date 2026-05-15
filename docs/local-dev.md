@@ -53,4 +53,6 @@ This guide covers the durable capture verification path for local development.
 
 ## WSL Notes
 
-If the shell cannot find `node` or `pnpm`, or they point at Windows executables, prepend the WSL-local Node install to `PATH` before rerunning the commands. The durable capture scripts call the WSL-local Node binary directly because both bare `vitest` resolution and script-level `node` lookup have been unreliable in this WSL-mounted workspace.
+If the shell cannot find `node` or `pnpm`, or they point at Windows executables, prepend the WSL-local Node install to `PATH` before rerunning the commands. The durable capture scripts call `node` directly instead of relying on package-manager shims, so the active `PATH` should resolve `node` to the WSL-local binary.
+
+If `docker compose` prints that Docker is not available in the WSL distro, start Docker Desktop on Windows and enable WSL integration for this distro. The `docker-desktop` WSL distro should show as `Running` in `wsl.exe -l -v` before starting Postgres.

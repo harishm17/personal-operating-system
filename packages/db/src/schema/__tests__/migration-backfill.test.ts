@@ -10,7 +10,7 @@ if (!process.env.DATABASE_URL) {
 
 describe('task 2 backfill migration', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
-  let cleanup = async () => undefined;
+  let cleanup: () => Promise<void> = async () => undefined;
 
   beforeAll(async () => {
     ({ dbClient, cleanup } = await setupTask2SchemaDb([

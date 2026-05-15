@@ -17,7 +17,7 @@ type PostgresError = Error & {
 
 describe('capture schema', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
-  let cleanup = async () => undefined;
+  let cleanup: () => Promise<void> = async () => undefined;
 
   beforeAll(async () => {
     ({ dbClient, cleanup } = await setupTask2SchemaDb([
@@ -27,6 +27,7 @@ describe('capture schema', () => {
       '004_task2_integrity_backfill.sql',
       '005_capture_jobs.sql',
       '006_capture_idempotency_uniques.sql',
+      '007_capture_job_guardrails.sql',
     ]));
   });
 
@@ -63,7 +64,7 @@ describe('capture schema', () => {
         insert into captures (id, channel, source_type, content_text, client_request_id)
         values (${randomUUID()}, 'web', 'quick_capture', 'duplicate client request id', ${clientRequestId})
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'captures_client_request_id_unique',
@@ -80,7 +81,7 @@ describe('capture schema', () => {
         insert into inbox_items (id, capture_id, item_type, title)
         values (${randomUUID()}, ${captureId}, 'capture_review', 'duplicate singleton inbox item')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'inbox_items_capture_id_item_type_unique',
@@ -97,7 +98,7 @@ describe('capture schema', () => {
         insert into capture_sessions (id, capture_id, session_key)
         values (${randomUUID()}, ${captureId}, 'capture:web:singleton')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_sessions_capture_id_session_key_unique',
@@ -114,7 +115,7 @@ describe('capture schema', () => {
         insert into capture_events (id, capture_id, kind)
         values (${randomUUID()}, ${captureId}, 'capture_received')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_events_capture_id_kind_unique',
@@ -180,7 +181,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}`})
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_jobs_dedupe_key_key',
@@ -192,7 +193,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}:second-attempt`})
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_jobs_capture_id_job_name_key',
@@ -213,7 +214,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key)
         values (${randomUUID()}, ${captureId}, 'process_capture', ${`bad-job-name:${captureId}`})
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23514',
         constraint: 'capture_jobs_job_name_check',
@@ -225,7 +226,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status, processed_at)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`pending-with-processed:${captureId}`}, 'pending', now())
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23514',
         constraint: 'capture_jobs_processed_at_consistency_check',
@@ -237,7 +238,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`completed-without-processed:${captureId}`}, 'completed')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23514',
         constraint: 'capture_jobs_processed_at_consistency_check',
@@ -294,7 +295,7 @@ describe('capture schema', () => {
         insert into capture_jobs (id, capture_id, job_name, dedupe_key, status)
         values (${randomUUID()}, ${captureId}, 'process-capture', ${`bad-status:${captureId}`}, 'pendng')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23514',
         constraint: 'capture_jobs_status_check',

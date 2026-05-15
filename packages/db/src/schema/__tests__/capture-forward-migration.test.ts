@@ -35,9 +35,23 @@ function toLegacyCapturePipeline(sqlText: string) {
     .replace(',\n  constraint inbox_items_capture_id_item_type_unique unique (capture_id, item_type)', '');
 }
 
+const legacyCaptureJobsMigration = `create table if not exists capture_jobs (
+  id uuid primary key default gen_random_uuid(),
+  capture_id uuid not null references captures(id) on delete cascade,
+  job_name text not null,
+  dedupe_key text not null,
+  status text not null default 'pending',
+  payload_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  available_at timestamptz not null default now(),
+  processed_at timestamptz,
+  unique (dedupe_key)
+);
+`;
+
 describe('capture forward migration', () => {
   let dbClient: Awaited<ReturnType<typeof setupTask2SchemaDb>>['dbClient'];
-  let cleanup = async () => undefined;
+  let cleanup: () => Promise<void> = async () => undefined;
 
   beforeAll(async () => {
     ({ dbClient, cleanup } = await setupTask2SchemaDb(listMigrations(), {
@@ -288,7 +302,7 @@ describe('capture forward migration', () => {
           insert into captures (id, channel, source_type, content_text, client_request_id)
           values (${randomUUID()}, 'web', 'quick_capture', 'duplicate after migration', ${clientRequestId})
         `),
-      ).rejects.toMatchObject<PostgresError>({
+      ).rejects.toMatchObject({
         cause: {
           code: '23505',
           constraint: 'captures_client_request_id_unique',
@@ -300,7 +314,7 @@ describe('capture forward migration', () => {
           insert into inbox_items (id, capture_id, item_type, title)
           values (${randomUUID()}, ${canonicalCaptureId}, 'capture_review', 'duplicate inbox after migration')
         `),
-      ).rejects.toMatchObject<PostgresError>({
+      ).rejects.toMatchObject({
         cause: {
           code: '23505',
           constraint: 'inbox_items_capture_id_item_type_unique',
@@ -312,7 +326,7 @@ describe('capture forward migration', () => {
           insert into capture_sessions (id, capture_id, session_key)
           values (${randomUUID()}, ${canonicalCaptureId}, 'capture:web:singleton')
         `),
-      ).rejects.toMatchObject<PostgresError>({
+      ).rejects.toMatchObject({
         cause: {
           code: '23505',
           constraint: 'capture_sessions_capture_id_session_key_unique',
@@ -324,7 +338,7 @@ describe('capture forward migration', () => {
           insert into capture_events (id, capture_id, kind)
           values (${randomUUID()}, ${canonicalCaptureId}, 'capture_received')
         `),
-      ).rejects.toMatchObject<PostgresError>({
+      ).rejects.toMatchObject({
         cause: {
           code: '23505',
           constraint: 'capture_events_capture_id_kind_unique',
@@ -352,7 +366,7 @@ describe('capture forward migration', () => {
         insert into captures (id, channel, source_type, content_text, client_request_id)
         values (${randomUUID()}, 'web', 'quick_capture', 'duplicate client request id', ${clientRequestId})
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'captures_client_request_id_unique',
@@ -369,7 +383,7 @@ describe('capture forward migration', () => {
         insert into inbox_items (id, capture_id, item_type, title)
         values (${randomUUID()}, ${captureId}, 'capture_review', 'duplicate singleton inbox item')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'inbox_items_capture_id_item_type_unique',
@@ -386,7 +400,7 @@ describe('capture forward migration', () => {
         insert into capture_sessions (id, capture_id, session_key)
         values (${randomUUID()}, ${captureId}, 'capture:web:singleton')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_sessions_capture_id_session_key_unique',
@@ -403,11 +417,83 @@ describe('capture forward migration', () => {
         insert into capture_events (id, capture_id, kind)
         values (${randomUUID()}, ${captureId}, 'capture_received')
       `),
-    ).rejects.toMatchObject<PostgresError>({
+    ).rejects.toMatchObject({
       cause: {
         code: '23505',
         constraint: 'capture_events_capture_id_kind_unique',
       },
     });
+  });
+
+  it('adds durable capture job guardrails when upgrading from the original capture_jobs migration', async () => {
+    const { dbClient: legacyDbClient, cleanup: cleanupLegacyDb } = await setupTask2SchemaDb(
+      listMigrations(),
+      {
+        migrationSqlOverrides: {
+          '005_capture_jobs.sql': legacyCaptureJobsMigration,
+        },
+      },
+    );
+
+    const captureId = randomUUID();
+    const jobId = randomUUID();
+
+    try {
+      const constraints = await legacyDbClient.db.execute(sql`
+        select constraint_name
+        from information_schema.table_constraints
+        where table_schema = current_schema()
+          and table_name = 'capture_jobs'
+          and constraint_name in (
+            'capture_jobs_job_name_check',
+            'capture_jobs_status_check',
+            'capture_jobs_processed_at_consistency_check',
+            'capture_jobs_capture_id_job_name_key'
+          )
+      `);
+
+      expect(constraints.rows.map((row) => row.constraint_name).sort()).toEqual([
+        'capture_jobs_capture_id_job_name_key',
+        'capture_jobs_job_name_check',
+        'capture_jobs_processed_at_consistency_check',
+        'capture_jobs_status_check',
+      ]);
+
+      await legacyDbClient.db.execute(sql`
+        insert into captures (id, channel, source_type, content_text, client_request_id)
+        values (${captureId}, 'web', 'quick_capture', 'capture job guardrail seed', ${randomUUID()})
+      `);
+
+      await legacyDbClient.db.execute(sql`
+        insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+        values (${jobId}, ${captureId}, 'process-capture', ${`process-capture:${captureId}`})
+      `);
+
+      await expect(
+        legacyDbClient.db.execute(sql`
+          insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+          values (${randomUUID()}, ${captureId}, 'process-capture', ${`process-capture:${captureId}:retry`})
+        `),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '23505',
+          constraint: 'capture_jobs_capture_id_job_name_key',
+        },
+      });
+
+      await expect(
+        legacyDbClient.db.execute(sql`
+          insert into capture_jobs (id, capture_id, job_name, dedupe_key)
+          values (${randomUUID()}, ${captureId}, 'process_capture', ${`bad-job:${captureId}`})
+        `),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '23514',
+          constraint: 'capture_jobs_job_name_check',
+        },
+      });
+    } finally {
+      await cleanupLegacyDb();
+    }
   });
 });
