@@ -7,8 +7,11 @@ import { AppModule } from '../src/app.module';
 
 describe('HealthController', () => {
   let app: INestApplication;
+  const originalDatabaseUrl = process.env.DATABASE_URL;
 
   beforeAll(async () => {
+    process.env.DATABASE_URL ??= 'postgres://assistant:assistant@localhost:5432/assistant';
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -18,7 +21,12 @@ describe('HealthController', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
   });
 
   it('GET /health returns ok', async () => {

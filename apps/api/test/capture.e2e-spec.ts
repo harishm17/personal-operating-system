@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
@@ -39,7 +40,7 @@ async function setupCaptureApiDb(databaseUrl: string) {
   const dbClient = createDb(schemaUrl.toString());
   for (const migrationName of CAPTURE_API_MIGRATIONS) {
     const migrationSql = readFileSync(
-      new URL(`../../../infra/migrations/${migrationName}`, import.meta.url),
+      resolve(__dirname, '../../../infra/migrations', migrationName),
       'utf8',
     );
     await dbClient.pool.query(migrationSql);
@@ -126,7 +127,7 @@ async function withTestApp<T>(run: (app: INestApplication) => Promise<T>) {
 
 describe('Capture API', () => {
   let dbClient: DbConnection;
-  let cleanup = async () => undefined;
+  let cleanup: () => Promise<void> = async () => undefined;
 
   beforeAll(async () => {
     const setup = await setupCaptureApiDb(baseDatabaseUrl);

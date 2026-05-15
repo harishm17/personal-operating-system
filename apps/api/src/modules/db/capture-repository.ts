@@ -1,7 +1,7 @@
 import { captureEvents, captureSessions, captures, inboxItems } from '@assistant/db';
 import { and, asc, eq } from 'drizzle-orm';
 import { Inject, Injectable } from '@nestjs/common';
-import type { CreateCaptureDto } from '../capture/dto/create-capture.dto';
+import { CAPTURE_CHANNELS, CreateCaptureDto } from '../capture/dto/create-capture.dto';
 import { DB_CONNECTION } from './db.constants';
 import type {
   CaptureEventRecord,
@@ -15,6 +15,11 @@ import type {
   InsertCaptureSessionInput,
   InsertInboxItemInput,
 } from './db.types';
+
+type CaptureRow = typeof captures.$inferSelect;
+type InboxItemRow = typeof inboxItems.$inferSelect;
+type CaptureSessionRow = typeof captureSessions.$inferSelect;
+type CaptureEventRow = typeof captureEvents.$inferSelect;
 
 @Injectable()
 export class PostgresCaptureRepository implements CaptureRepository {
@@ -34,7 +39,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .returning();
 
     if (capture) {
-      return { capture, created: true };
+      return { capture: this.toCaptureRecord(capture), created: true };
     }
 
     return {
@@ -50,7 +55,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .where(eq(captures.id, captureId))
       .limit(1);
 
-    return capture;
+    return capture ? this.toCaptureRecord(capture) : undefined;
   }
 
   async findCaptureByClientRequestId(clientRequestId: string): Promise<CaptureRecord | undefined> {
@@ -61,7 +66,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(captures.createdAt))
       .limit(1);
 
-    return capture;
+    return capture ? this.toCaptureRecord(capture) : undefined;
   }
 
   async findInboxItemByCaptureId(captureId: string): Promise<InboxItemRecord | undefined> {
@@ -72,7 +77,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(inboxItems.createdAt))
       .limit(1);
 
-    return inboxItem;
+    return inboxItem ? this.toInboxItemRecord(inboxItem) : undefined;
   }
 
   async findOrCreateInboxItem(input: InsertInboxItemInput): Promise<InboxItemRecord> {
@@ -88,7 +93,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .returning();
 
     if (inboxItem) {
-      return inboxItem;
+      return this.toInboxItemRecord(inboxItem);
     }
 
     const existingInboxItem = await this.findInboxItemByCaptureIdAndItemType(
@@ -112,7 +117,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(captureSessions.startedAt))
       .limit(1);
 
-    return captureSession;
+    return captureSession ? this.toCaptureSessionRecord(captureSession) : undefined;
   }
 
   async findOrCreateCaptureSession(
@@ -129,7 +134,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .returning();
 
     if (captureSession) {
-      return captureSession;
+      return this.toCaptureSessionRecord(captureSession);
     }
 
     const existingCaptureSession = await this.findCaptureSessionByCaptureIdAndSessionKey(
@@ -156,7 +161,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(captureEvents.createdAt))
       .limit(1);
 
-    return captureEvent;
+    return captureEvent ? this.toCaptureEventRecord(captureEvent) : undefined;
   }
 
   async findOrCreateCaptureEvent(input: InsertCaptureEventInput): Promise<CaptureEventRecord> {
@@ -172,7 +177,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .returning();
 
     if (captureEvent) {
-      return captureEvent;
+      return this.toCaptureEventRecord(captureEvent);
     }
 
     const existingCaptureEvent = await this.findCaptureEventByCaptureIdAndKind(
@@ -196,31 +201,37 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .where(eq(captureEvents.id, captureEventId))
       .returning();
 
-    return captureEvent;
+    return captureEvent ? this.toCaptureEventRecord(captureEvent) : undefined;
   }
 
   async listInboxItemsByCaptureId(captureId: string): Promise<InboxItemRecord[]> {
-    return this.connection.db
+    const rows = await this.connection.db
       .select()
       .from(inboxItems)
       .where(eq(inboxItems.captureId, captureId))
       .orderBy(asc(inboxItems.createdAt));
+
+    return rows.map((row) => this.toInboxItemRecord(row));
   }
 
   async listCaptureSessionsByCaptureId(captureId: string): Promise<CaptureSessionRecord[]> {
-    return this.connection.db
+    const rows = await this.connection.db
       .select()
       .from(captureSessions)
       .where(eq(captureSessions.captureId, captureId))
       .orderBy(asc(captureSessions.startedAt));
+
+    return rows.map((row) => this.toCaptureSessionRecord(row));
   }
 
   async listCaptureEventsByCaptureId(captureId: string): Promise<CaptureEventRecord[]> {
-    return this.connection.db
+    const rows = await this.connection.db
       .select()
       .from(captureEvents)
       .where(eq(captureEvents.captureId, captureId))
       .orderBy(asc(captureEvents.createdAt));
+
+    return rows.map((row) => this.toCaptureEventRecord(row));
   }
 
   private async loadCaptureByClientRequestId(clientRequestId: string): Promise<CaptureRecord> {
@@ -243,7 +254,7 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(inboxItems.createdAt))
       .limit(1);
 
-    return inboxItem;
+    return inboxItem ? this.toInboxItemRecord(inboxItem) : undefined;
   }
 
   private async findCaptureSessionByCaptureIdAndSessionKey(
@@ -262,6 +273,51 @@ export class PostgresCaptureRepository implements CaptureRepository {
       .orderBy(asc(captureSessions.startedAt))
       .limit(1);
 
-    return captureSession;
+    return captureSession ? this.toCaptureSessionRecord(captureSession) : undefined;
+  }
+
+  private toCaptureRecord(row: CaptureRow): CaptureRecord {
+    return {
+      ...row,
+      channel: this.toCaptureChannel(row.channel),
+      metadata: this.toJsonMap(row.metadata),
+    };
+  }
+
+  private toInboxItemRecord(row: InboxItemRow): InboxItemRecord {
+    return {
+      ...row,
+      payloadJson: this.toJsonMap(row.payloadJson),
+    };
+  }
+
+  private toCaptureSessionRecord(row: CaptureSessionRow): CaptureSessionRecord {
+    return {
+      ...row,
+      metadata: this.toJsonMap(row.metadata),
+    };
+  }
+
+  private toCaptureEventRecord(row: CaptureEventRow): CaptureEventRecord {
+    return {
+      ...row,
+      payloadJson: this.toJsonMap(row.payloadJson),
+    };
+  }
+
+  private toCaptureChannel(channel: string): CaptureRecord['channel'] {
+    if (CAPTURE_CHANNELS.includes(channel as CaptureRecord['channel'])) {
+      return channel as CaptureRecord['channel'];
+    }
+
+    throw new Error(`Unsupported persisted capture channel: ${channel}`);
+  }
+
+  private toJsonMap(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+
+    throw new Error('Expected JSON object from capture persistence');
   }
 }
